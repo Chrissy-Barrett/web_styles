@@ -13,7 +13,6 @@ css/custom.min.css
 css/common.min.css
 css/custom.pack.css
 css/common.pack.css
-composer.lock
 vendor/composer/
 vendor/autoload.php
 json/cache/tags.json
