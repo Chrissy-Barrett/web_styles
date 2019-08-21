@@ -1711,4 +1711,8486 @@ $.Widget.prototype = {
 			.removeData( this.widgetName )
 			.removeData( this.widgetFullName )
 			// support: jquery <1.6.3
-			// http://bugs.jquery.com/ti
+			// http://bugs.jquery.com/ticket/9413
+			.removeData( $.camelCase( this.widgetFullName ) );
+		this.widget()
+			.unbind( this.eventNamespace )
+			.removeAttr( "aria-disabled" )
+			.removeClass(
+				this.widgetFullName + "-disabled " +
+				"ui-state-disabled" );
+
+		// clean up events and states
+		this.bindings.unbind( this.eventNamespace );
+		this.hoverable.removeClass( "ui-state-hover" );
+		this.focusable.removeClass( "ui-state-focus" );
+	},
+	_destroy: $.noop,
+
+	widget: function() {
+		return this.element;
+	},
+
+	option: function( key, value ) {
+		var options = key,
+			parts,
+			curOption,
+			i;
+
+		if ( arguments.length === 0 ) {
+			// don't return a reference to the internal hash
+			return $.widget.extend( {}, this.options );
+		}
+
+		if ( typeof key === "string" ) {
+			// handle nested keys, e.g., "foo.bar" => { foo: { bar: ___ } }
+			options = {};
+			parts = key.split( "." );
+			key = parts.shift();
+			if ( parts.length ) {
+				curOption = options[ key ] = $.widget.extend( {}, this.options[ key ] );
+				for ( i = 0; i < parts.length - 1; i++ ) {
+					curOption[ parts[ i ] ] = curOption[ parts[ i ] ] || {};
+					curOption = curOption[ parts[ i ] ];
+				}
+				key = parts.pop();
+				if ( arguments.length === 1 ) {
+					return curOption[ key ] === undefined ? null : curOption[ key ];
+				}
+				curOption[ key ] = value;
+			} else {
+				if ( arguments.length === 1 ) {
+					return this.options[ key ] === undefined ? null : this.options[ key ];
+				}
+				options[ key ] = value;
+			}
+		}
+
+		this._setOptions( options );
+
+		return this;
+	},
+	_setOptions: function( options ) {
+		var key;
+
+		for ( key in options ) {
+			this._setOption( key, options[ key ] );
+		}
+
+		return this;
+	},
+	_setOption: function( key, value ) {
+		this.options[ key ] = value;
+
+		if ( key === "disabled" ) {
+			this.widget()
+				.toggleClass( this.widgetFullName + "-disabled ui-state-disabled", !!value )
+				.attr( "aria-disabled", value );
+			this.hoverable.removeClass( "ui-state-hover" );
+			this.focusable.removeClass( "ui-state-focus" );
+		}
+
+		return this;
+	},
+
+	enable: function() {
+		return this._setOption( "disabled", false );
+	},
+	disable: function() {
+		return this._setOption( "disabled", true );
+	},
+
+	_on: function( suppressDisabledCheck, element, handlers ) {
+		var delegateElement,
+			instance = this;
+
+		// no suppressDisabledCheck flag, shuffle arguments
+		if ( typeof suppressDisabledCheck !== "boolean" ) {
+			handlers = element;
+			element = suppressDisabledCheck;
+			suppressDisabledCheck = false;
+		}
+
+		// no element argument, shuffle and use this.element
+		if ( !handlers ) {
+			handlers = element;
+			element = this.element;
+			delegateElement = this.widget();
+		} else {
+			// accept selectors, DOM elements
+			element = delegateElement = $( element );
+			this.bindings = this.bindings.add( element );
+		}
+
+		$.each( handlers, function( event, handler ) {
+			function handlerProxy() {
+				// allow widgets to customize the disabled handling
+				// - disabled as an array instead of boolean
+				// - disabled class as method for disabling individual parts
+				if ( !suppressDisabledCheck &&
+						( instance.options.disabled === true ||
+							$( this ).hasClass( "ui-state-disabled" ) ) ) {
+					return;
+				}
+				return ( typeof handler === "string" ? instance[ handler ] : handler )
+					.apply( instance, arguments );
+			}
+
+			// copy the guid so direct unbinding works
+			if ( typeof handler !== "string" ) {
+				handlerProxy.guid = handler.guid =
+					handler.guid || handlerProxy.guid || $.guid++;
+			}
+
+			var match = event.match( /^(\w+)\s*(.*)$/ ),
+				eventName = match[1] + instance.eventNamespace,
+				selector = match[2];
+			if ( selector ) {
+				delegateElement.delegate( selector, eventName, handlerProxy );
+			} else {
+				element.bind( eventName, handlerProxy );
+			}
+		});
+	},
+
+	_off: function( element, eventName ) {
+		eventName = (eventName || "").split( " " ).join( this.eventNamespace + " " ) + this.eventNamespace;
+		element.unbind( eventName ).undelegate( eventName );
+	},
+
+	_delay: function( handler, delay ) {
+		function handlerProxy() {
+			return ( typeof handler === "string" ? instance[ handler ] : handler )
+				.apply( instance, arguments );
+		}
+		var instance = this;
+		return setTimeout( handlerProxy, delay || 0 );
+	},
+
+	_hoverable: function( element ) {
+		this.hoverable = this.hoverable.add( element );
+		this._on( element, {
+			mouseenter: function( event ) {
+				$( event.currentTarget ).addClass( "ui-state-hover" );
+			},
+			mouseleave: function( event ) {
+				$( event.currentTarget ).removeClass( "ui-state-hover" );
+			}
+		});
+	},
+
+	_focusable: function( element ) {
+		this.focusable = this.focusable.add( element );
+		this._on( element, {
+			focusin: function( event ) {
+				$( event.currentTarget ).addClass( "ui-state-focus" );
+			},
+			focusout: function( event ) {
+				$( event.currentTarget ).removeClass( "ui-state-focus" );
+			}
+		});
+	},
+
+	_trigger: function( type, event, data ) {
+		var prop, orig,
+			callback = this.options[ type ];
+
+		data = data || {};
+		event = $.Event( event );
+		event.type = ( type === this.widgetEventPrefix ?
+			type :
+			this.widgetEventPrefix + type ).toLowerCase();
+		// the original event may come from any element
+		// so we need to reset the target on the new event
+		event.target = this.element[ 0 ];
+
+		// copy original event properties over to the new event
+		orig = event.originalEvent;
+		if ( orig ) {
+			for ( prop in orig ) {
+				if ( !( prop in event ) ) {
+					event[ prop ] = orig[ prop ];
+				}
+			}
+		}
+
+		this.element.trigger( event, data );
+		return !( $.isFunction( callback ) &&
+			callback.apply( this.element[0], [ event ].concat( data ) ) === false ||
+			event.isDefaultPrevented() );
+	}
+};
+
+$.each( { show: "fadeIn", hide: "fadeOut" }, function( method, defaultEffect ) {
+	$.Widget.prototype[ "_" + method ] = function( element, options, callback ) {
+		if ( typeof options === "string" ) {
+			options = { effect: options };
+		}
+		var hasOptions,
+			effectName = !options ?
+				method :
+				options === true || typeof options === "number" ?
+					defaultEffect :
+					options.effect || defaultEffect;
+		options = options || {};
+		if ( typeof options === "number" ) {
+			options = { duration: options };
+		}
+		hasOptions = !$.isEmptyObject( options );
+		options.complete = callback;
+		if ( options.delay ) {
+			element.delay( options.delay );
+		}
+		if ( hasOptions && $.effects && $.effects.effect[ effectName ] ) {
+			element[ method ]( options );
+		} else if ( effectName !== method && element[ effectName ] ) {
+			element[ effectName ]( options.duration, options.easing, callback );
+		} else {
+			element.queue(function( next ) {
+				$( this )[ method ]();
+				if ( callback ) {
+					callback.call( element[ 0 ] );
+				}
+				next();
+			});
+		}
+	};
+});
+
+})( jQuery );
+(function( $, undefined ) {
+
+var tabId = 0,
+	rhash = /#.*$/;
+
+function getNextTabId() {
+	return ++tabId;
+}
+
+function isLocal( anchor ) {
+	// support: IE7
+	// IE7 doesn't normalize the href property when set via script (#9317)
+	anchor = anchor.cloneNode( false );
+
+	return anchor.hash.length > 1 &&
+		decodeURIComponent( anchor.href.replace( rhash, "" ) ) ===
+			decodeURIComponent( location.href.replace( rhash, "" ) );
+}
+
+$.widget( "ui.tabs", {
+	version: "1.10.4",
+	delay: 300,
+	options: {
+		active: null,
+		collapsible: false,
+		event: "click",
+		heightStyle: "content",
+		hide: null,
+		show: null,
+
+		// callbacks
+		activate: null,
+		beforeActivate: null,
+		beforeLoad: null,
+		load: null
+	},
+
+	_create: function() {
+		var that = this,
+			options = this.options;
+		
+		//console.log("test");
+		
+		this.running = false;
+
+		this.element
+			.addClass( "ui-tabs ui-widget ui-widget-content ui-corner-all" )
+			.toggleClass( "ui-tabs-collapsible", options.collapsible )
+			// Prevent users from focusing disabled tabs via click
+			.delegate( ".ui-tabs-nav > li", "mousedown" + this.eventNamespace, function( event ) {
+				if ( $( this ).is( ".ui-state-disabled" ) ) {
+					event.preventDefault();
+				}
+			})
+			// support: IE <9
+			// Preventing the default action in mousedown doesn't prevent IE
+			// from focusing the element, so if the anchor gets focused, blur.
+			// We don't have to worry about focusing the previously focused
+			// element since clicking on a non-focusable element should focus
+			// the body anyway.
+			.delegate( ".ui-tabs-anchor", "focus" + this.eventNamespace, function() {
+				if ( $( this ).closest( "li" ).is( ".ui-state-disabled" ) ) {
+					this.blur();
+				}
+			});
+
+		this._processTabs();
+		options.active = this._initialActive();
+
+		// Take disabling tabs via class attribute from HTML
+		// into account and update option properly.
+		if ( $.isArray( options.disabled ) ) {
+			options.disabled = $.unique( options.disabled.concat(
+				$.map( this.tabs.filter( ".ui-state-disabled" ), function( li ) {
+					return that.tabs.index( li );
+				})
+			) ).sort();
+		}
+
+		// check for length avoids error when initializing empty list
+		if ( this.options.active !== false && this.anchors.length ) {
+			this.active = this._findActive( options.active );
+		} else {
+			this.active = $();
+		}
+
+		this._refresh();
+
+		if ( this.active.length ) {
+			this.load( options.active );
+		}
+	},
+
+	_initialActive: function() {
+		var active = this.options.active,
+			collapsible = this.options.collapsible,
+			locationHash = location.hash.substring( 1 );
+
+		if ( active === null ) {
+			// check the fragment identifier in the URL
+			if ( locationHash ) {
+				this.tabs.each(function( i, tab ) {
+					if ( $( tab ).attr( "aria-controls" ) === locationHash ) {
+						active = i;
+						return false;
+					}
+				});
+			}
+
+			// check for a tab marked active via a class
+			if ( active === null ) {
+				active = this.tabs.index( this.tabs.filter( ".ui-tabs-active" ) );
+			}
+
+			// no active tab, set to false
+			if ( active === null || active === -1 ) {
+				active = this.tabs.length ? 0 : false;
+			}
+		}
+
+		// handle numbers: negative, out of range
+		if ( active !== false ) {
+			active = this.tabs.index( this.tabs.eq( active ) );
+			if ( active === -1 ) {
+				active = collapsible ? false : 0;
+			}
+		}
+
+		// don't allow collapsible: false and active: false
+		if ( !collapsible && active === false && this.anchors.length ) {
+			active = 0;
+		}
+
+		return active;
+	},
+
+	_getCreateEventData: function() {
+		return {
+			tab: this.active,
+			panel: !this.active.length ? $() : this._getPanelForTab( this.active )
+		};
+	},
+
+	_tabKeydown: function( event ) {
+		var focusedTab = $( this.document[0].activeElement ).closest( "li" ),
+			selectedIndex = this.tabs.index( focusedTab ),
+			goingForward = true;
+
+		if ( this._handlePageNav( event ) ) {
+			return;
+		}
+
+		switch ( event.keyCode ) {
+			case $.ui.keyCode.RIGHT:
+			case $.ui.keyCode.DOWN:
+				selectedIndex++;
+				break;
+			case $.ui.keyCode.UP:
+			case $.ui.keyCode.LEFT:
+				goingForward = false;
+				selectedIndex--;
+				break;
+			case $.ui.keyCode.END:
+				selectedIndex = this.anchors.length - 1;
+				break;
+			case $.ui.keyCode.HOME:
+				selectedIndex = 0;
+				break;
+			case $.ui.keyCode.SPACE:
+				// Activate only, no collapsing
+				event.preventDefault();
+				clearTimeout( this.activating );
+				this._activate( selectedIndex );
+				return;
+			case $.ui.keyCode.ENTER:
+				// Toggle (cancel delayed activation, allow collapsing)
+				event.preventDefault();
+				clearTimeout( this.activating );
+				// Determine if we should collapse or activate
+				this._activate( selectedIndex === this.options.active ? false : selectedIndex );
+				return;
+			default:
+				return;
+		}
+
+		// Focus the appropriate tab, based on which key was pressed
+		event.preventDefault();
+		clearTimeout( this.activating );
+		selectedIndex = this._focusNextTab( selectedIndex, goingForward );
+
+		// Navigating with control key will prevent automatic activation
+		if ( !event.ctrlKey ) {
+			// Update aria-selected immediately so that AT think the tab is already selected.
+			// Otherwise AT may confuse the user by stating that they need to activate the tab,
+			// but the tab will already be activated by the time the announcement finishes.
+			focusedTab.attr( "aria-selected", "false" );
+			this.tabs.eq( selectedIndex ).attr( "aria-selected", "true" );
+
+			this.activating = this._delay(function() {
+				this.option( "active", selectedIndex );
+			}, this.delay );
+		}
+	},
+
+	_panelKeydown: function( event ) {
+		if ( this._handlePageNav( event ) ) {
+			return;
+		}
+
+		// Ctrl+up moves focus to the current tab
+		if ( event.ctrlKey && event.keyCode === $.ui.keyCode.UP ) {
+			event.preventDefault();
+			this.active.focus();
+		}
+	},
+
+	// Alt+page up/down moves focus to the previous/next tab (and activates)
+	_handlePageNav: function( event ) {
+		if ( event.altKey && event.keyCode === $.ui.keyCode.PAGE_UP ) {
+			this._activate( this._focusNextTab( this.options.active - 1, false ) );
+			return true;
+		}
+		if ( event.altKey && event.keyCode === $.ui.keyCode.PAGE_DOWN ) {
+			this._activate( this._focusNextTab( this.options.active + 1, true ) );
+			return true;
+		}
+	},
+
+	_findNextTab: function( index, goingForward ) {
+		var lastTabIndex = this.tabs.length - 1;
+
+		function constrain() {
+			if ( index > lastTabIndex ) {
+				index = 0;
+			}
+			if ( index < 0 ) {
+				index = lastTabIndex;
+			}
+			return index;
+		}
+
+		while ( $.inArray( constrain(), this.options.disabled ) !== -1 ) {
+			index = goingForward ? index + 1 : index - 1;
+		}
+
+		return index;
+	},
+
+	_focusNextTab: function( index, goingForward ) {
+		index = this._findNextTab( index, goingForward );
+		this.tabs.eq( index ).focus();
+		return index;
+	},
+
+	_setOption: function( key, value ) {
+		if ( key === "active" ) {
+			// _activate() will handle invalid values and update this.options
+			this._activate( value );
+			return;
+		}
+
+		if ( key === "disabled" ) {
+			// don't use the widget factory's disabled handling
+			this._setupDisabled( value );
+			return;
+		}
+
+		this._super( key, value);
+
+		if ( key === "collapsible" ) {
+			this.element.toggleClass( "ui-tabs-collapsible", value );
+			// Setting collapsible: false while collapsed; open first panel
+			if ( !value && this.options.active === false ) {
+				this._activate( 0 );
+			}
+		}
+
+		if ( key === "event" ) {
+			this._setupEvents( value );
+		}
+
+		if ( key === "heightStyle" ) {
+			this._setupHeightStyle( value );
+		}
+	},
+
+	_tabId: function( tab ) {
+		return tab.attr( "aria-controls" ) || "ui-tabs-" + getNextTabId();
+	},
+
+	_sanitizeSelector: function( hash ) {
+		return hash ? hash.replace( /[!"$%&'()*+,.\/:;<=>?@\[\]\^`{|}~]/g, "\\$&" ) : "";
+	},
+
+	refresh: function() {
+		var options = this.options,
+			lis = this.tablist.children( ":has(a[href])" );
+
+		// get disabled tabs from class attribute from HTML
+		// this will get converted to a boolean if needed in _refresh()
+		options.disabled = $.map( lis.filter( ".ui-state-disabled" ), function( tab ) {
+			return lis.index( tab );
+		});
+
+		this._processTabs();
+
+		// was collapsed or no tabs
+		if ( options.active === false || !this.anchors.length ) {
+			options.active = false;
+			this.active = $();
+		// was active, but active tab is gone
+		} else if ( this.active.length && !$.contains( this.tablist[ 0 ], this.active[ 0 ] ) ) {
+			// all remaining tabs are disabled
+			if ( this.tabs.length === options.disabled.length ) {
+				options.active = false;
+				this.active = $();
+			// activate previous tab
+			} else {
+				this._activate( this._findNextTab( Math.max( 0, options.active - 1 ), false ) );
+			}
+		// was active, active tab still exists
+		} else {
+			// make sure active index is correct
+			options.active = this.tabs.index( this.active );
+		}
+
+		this._refresh();
+	},
+
+	_refresh: function() {
+		this._setupDisabled( this.options.disabled );
+		this._setupEvents( this.options.event );
+		this._setupHeightStyle( this.options.heightStyle );
+
+		this.tabs.not( this.active ).attr({
+			"aria-selected": "false",
+			tabIndex: -1
+		});
+		this.panels.not( this._getPanelForTab( this.active ) )
+			.hide()
+			.attr({
+				"aria-expanded": "false",
+				"aria-hidden": "true"
+			});
+
+		// Make sure one tab is in the tab order
+		if ( !this.active.length ) {
+			this.tabs.eq( 0 ).attr( "tabIndex", 0 );
+		} else {
+			this.active
+				.addClass( "ui-tabs-active ui-state-active" )
+				.attr({
+					"aria-selected": "true",
+					tabIndex: 0
+				});
+			this._getPanelForTab( this.active )
+				.show()
+				.attr({
+					"aria-expanded": "true",
+					"aria-hidden": "false"
+				});
+		}
+	},
+
+	_processTabs: function() {
+		var that = this;
+
+		this.tablist = this._getList()
+			.addClass( "ui-tabs-nav ui-helper-reset ui-helper-clearfix ui-widget-header ui-corner-all" )
+			.attr( "role", "tablist" );
+
+		this.tabs = this.tablist.find( "> li:has(a[href])" )
+			.addClass( "ui-state-default ui-corner-top" )
+			.attr({
+				role: "tab",
+				tabIndex: -1
+			});
+
+		this.anchors = this.tabs.map(function() {
+				return $( "a", this )[ 0 ];
+			})
+			.addClass( "ui-tabs-anchor" )
+			.attr({
+				role: "presentation",
+				tabIndex: -1
+			});
+
+		this.panels = $();
+
+		this.anchors.each(function( i, anchor ) {
+			var selector, panel, panelId,
+				anchorId = $( anchor ).uniqueId().attr( "id" ),
+				tab = $( anchor ).closest( "li" ),
+				originalAriaControls = tab.attr( "aria-controls" );
+
+			// inline tab
+			if ( isLocal( anchor ) ) {
+				selector = anchor.hash;
+				panel = that.element.find( that._sanitizeSelector( selector ) );
+			// remote tab
+			} else {
+				panelId = that._tabId( tab );
+				selector = "#" + panelId;
+				panel = that.element.find( selector );
+				if ( !panel.length ) {
+					panel = that._createPanel( panelId );
+					panel.insertAfter( that.panels[ i - 1 ] || that.tablist );
+				}
+				panel.attr( "aria-live", "polite" );
+			}
+
+			if ( panel.length) {
+				that.panels = that.panels.add( panel );
+			}
+			if ( originalAriaControls ) {
+				tab.data( "ui-tabs-aria-controls", originalAriaControls );
+			}
+			tab.attr({
+				"aria-controls": selector.substring( 1 ),
+				"aria-labelledby": anchorId
+			});
+			panel.attr( "aria-labelledby", anchorId );
+		});
+
+		this.panels
+			.addClass( "ui-tabs-panel ui-widget-content ui-corner-bottom" )
+			.attr( "role", "tabpanel" );
+	},
+
+	// allow overriding how to find the list for rare usage scenarios (#7715)
+	_getList: function() {
+		return this.tablist || this.element.find( "ol,ul" ).eq( 0 );
+	},
+
+	_createPanel: function( id ) {
+		return $( "<div>" )
+			.attr( "id", id )
+			.addClass( "ui-tabs-panel ui-widget-content ui-corner-bottom" )
+			.data( "ui-tabs-destroy", true );
+	},
+
+	_setupDisabled: function( disabled ) {
+		if ( $.isArray( disabled ) ) {
+			if ( !disabled.length ) {
+				disabled = false;
+			} else if ( disabled.length === this.anchors.length ) {
+				disabled = true;
+			}
+		}
+
+		// disable tabs
+		for ( var i = 0, li; ( li = this.tabs[ i ] ); i++ ) {
+			if ( disabled === true || $.inArray( i, disabled ) !== -1 ) {
+				$( li )
+					.addClass( "ui-state-disabled" )
+					.attr( "aria-disabled", "true" );
+			} else {
+				$( li )
+					.removeClass( "ui-state-disabled" )
+					.removeAttr( "aria-disabled" );
+			}
+		}
+
+		this.options.disabled = disabled;
+	},
+
+	_setupEvents: function( event ) {
+		var events = {
+			click: function( event ) {
+				event.preventDefault();
+			}
+		};
+		if ( event ) {
+			$.each( event.split(" "), function( index, eventName ) {
+				events[ eventName ] = "_eventHandler";
+			});
+		}
+
+		this._off( this.anchors.add( this.tabs ).add( this.panels ) );
+		this._on( this.anchors, events );
+		this._on( this.tabs, { keydown: "_tabKeydown" } );
+		this._on( this.panels, { keydown: "_panelKeydown" } );
+
+		this._focusable( this.tabs );
+		this._hoverable( this.tabs );
+	},
+
+	_setupHeightStyle: function( heightStyle ) {
+		var maxHeight,
+			parent = this.element.parent();
+
+		if ( heightStyle === "fill" ) {
+			maxHeight = parent.height();
+			maxHeight -= this.element.outerHeight() - this.element.height();
+
+			this.element.siblings( ":visible" ).each(function() {
+				var elem = $( this ),
+					position = elem.css( "position" );
+
+				if ( position === "absolute" || position === "fixed" ) {
+					return;
+				}
+				maxHeight -= elem.outerHeight( true );
+			});
+
+			this.element.children().not( this.panels ).each(function() {
+				maxHeight -= $( this ).outerHeight( true );
+			});
+
+			this.panels.each(function() {
+				$( this ).height( Math.max( 0, maxHeight -
+					$( this ).innerHeight() + $( this ).height() ) );
+			})
+			.css( "overflow", "auto" );
+		} else if ( heightStyle === "auto" ) {
+			maxHeight = 0;
+			this.panels.each(function() {
+				maxHeight = Math.max( maxHeight, $( this ).height( "" ).height() );
+			}).height( maxHeight );
+		}
+	},
+
+	_eventHandler: function( event ) {
+		var options = this.options,
+			active = this.active,
+			anchor = $( event.currentTarget ),
+			tab = anchor.closest( "li" ),
+			clickedIsActive = tab[ 0 ] === active[ 0 ],
+			collapsing = clickedIsActive && options.collapsible,
+			toShow = collapsing ? $() : this._getPanelForTab( tab ),
+			toHide = !active.length ? $() : this._getPanelForTab( active ),
+			eventData = {
+				oldTab: active,
+				oldPanel: toHide,
+				newTab: collapsing ? $() : tab,
+				newPanel: toShow
+			};
+
+		event.preventDefault();
+
+		if ( tab.hasClass( "ui-state-disabled" ) ||
+				// tab is already loading
+				tab.hasClass( "ui-tabs-loading" ) ||
+				// can't switch durning an animation
+				this.running ||
+				// click on active header, but not collapsible
+				( clickedIsActive && !options.collapsible ) ||
+				// allow canceling activation
+				( this._trigger( "beforeActivate", event, eventData ) === false ) ) {
+			return;
+		}
+
+		options.active = collapsing ? false : this.tabs.index( tab );
+
+		this.active = clickedIsActive ? $() : tab;
+		if ( this.xhr ) {
+			this.xhr.abort();
+		}
+
+		if ( !toHide.length && !toShow.length ) {
+			$.error( "jQuery UI Tabs: Mismatching fragment identifier." );
+		}
+
+		if ( toShow.length ) {
+			this.load( this.tabs.index( tab ), event );
+		}
+		this._toggle( event, eventData );
+	},
+
+	// handles show/hide for selecting tabs
+	_toggle: function( event, eventData ) {
+		var that = this,
+			toShow = eventData.newPanel,
+			toHide = eventData.oldPanel;
+
+		this.running = true;
+
+		function complete() {
+			that.running = false;
+			that._trigger( "activate", event, eventData );
+		}
+
+		function show() {
+			eventData.newTab.closest( "li" ).addClass( "ui-tabs-active ui-state-active" );
+
+			if ( toShow.length && that.options.show ) {
+				that._show( toShow, that.options.show, complete );
+			} else {
+				toShow.show();
+				complete();
+			}
+		}
+
+		// start out by hiding, then showing, then completing
+		if ( toHide.length && this.options.hide ) {
+			this._hide( toHide, this.options.hide, function() {
+				eventData.oldTab.closest( "li" ).removeClass( "ui-tabs-active ui-state-active" );
+				show();
+			});
+		} else {
+			eventData.oldTab.closest( "li" ).removeClass( "ui-tabs-active ui-state-active" );
+			toHide.hide();
+			show();
+		}
+
+		toHide.attr({
+			"aria-expanded": "false",
+			"aria-hidden": "true"
+		});
+		eventData.oldTab.attr( "aria-selected", "false" );
+		// If we're switching tabs, remove the old tab from the tab order.
+		// If we're opening from collapsed state, remove the previous tab from the tab order.
+		// If we're collapsing, then keep the collapsing tab in the tab order.
+		if ( toShow.length && toHide.length ) {
+			eventData.oldTab.attr( "tabIndex", -1 );
+		} else if ( toShow.length ) {
+			this.tabs.filter(function() {
+				return $( this ).attr( "tabIndex" ) === 0;
+			})
+			.attr( "tabIndex", -1 );
+		}
+
+		toShow.attr({
+			"aria-expanded": "true",
+			"aria-hidden": "false"
+		});
+		eventData.newTab.attr({
+			"aria-selected": "true",
+			tabIndex: 0
+		});
+	},
+
+	_activate: function( index ) {
+		var anchor,
+			active = this._findActive( index );
+
+		// trying to activate the already active panel
+		if ( active[ 0 ] === this.active[ 0 ] ) {
+			return;
+		}
+
+		// trying to collapse, simulate a click on the current active header
+		if ( !active.length ) {
+			active = this.active;
+		}
+
+		anchor = active.find( ".ui-tabs-anchor" )[ 0 ];
+		this._eventHandler({
+			target: anchor,
+			currentTarget: anchor,
+			preventDefault: $.noop
+		});
+	},
+
+	_findActive: function( index ) {
+		return index === false ? $() : this.tabs.eq( index );
+	},
+
+	_getIndex: function( index ) {
+		// meta-function to give users option to provide a href string instead of a numerical index.
+		if ( typeof index === "string" ) {
+			index = this.anchors.index( this.anchors.filter( "[href$='" + index + "']" ) );
+		}
+
+		return index;
+	},
+
+	_destroy: function() {
+		if ( this.xhr ) {
+			this.xhr.abort();
+		}
+
+		this.element.removeClass( "ui-tabs ui-widget ui-widget-content ui-corner-all ui-tabs-collapsible" );
+
+		this.tablist
+			.removeClass( "ui-tabs-nav ui-helper-reset ui-helper-clearfix ui-widget-header ui-corner-all" )
+			.removeAttr( "role" );
+
+		this.anchors
+			.removeClass( "ui-tabs-anchor" )
+			.removeAttr( "role" )
+			.removeAttr( "tabIndex" )
+			.removeUniqueId();
+
+		this.tabs.add( this.panels ).each(function() {
+			if ( $.data( this, "ui-tabs-destroy" ) ) {
+				$( this ).remove();
+			} else {
+				$( this )
+					.removeClass( "ui-state-default ui-state-active ui-state-disabled " +
+						"ui-corner-top ui-corner-bottom ui-widget-content ui-tabs-active ui-tabs-panel" )
+					.removeAttr( "tabIndex" )
+					.removeAttr( "aria-live" )
+					.removeAttr( "aria-busy" )
+					.removeAttr( "aria-selected" )
+					.removeAttr( "aria-labelledby" )
+					.removeAttr( "aria-hidden" )
+					.removeAttr( "aria-expanded" )
+					.removeAttr( "role" );
+			}
+		});
+
+		this.tabs.each(function() {
+			var li = $( this ),
+				prev = li.data( "ui-tabs-aria-controls" );
+			if ( prev ) {
+				li
+					.attr( "aria-controls", prev )
+					.removeData( "ui-tabs-aria-controls" );
+			} else {
+				li.removeAttr( "aria-controls" );
+			}
+		});
+
+		this.panels.show();
+
+		if ( this.options.heightStyle !== "content" ) {
+			this.panels.css( "height", "" );
+		}
+	},
+
+	enable: function( index ) {
+		var disabled = this.options.disabled;
+		if ( disabled === false ) {
+			return;
+		}
+
+		if ( index === undefined ) {
+			disabled = false;
+		} else {
+			index = this._getIndex( index );
+			if ( $.isArray( disabled ) ) {
+				disabled = $.map( disabled, function( num ) {
+					return num !== index ? num : null;
+				});
+			} else {
+				disabled = $.map( this.tabs, function( li, num ) {
+					return num !== index ? num : null;
+				});
+			}
+		}
+		this._setupDisabled( disabled );
+	},
+
+	disable: function( index ) {
+		var disabled = this.options.disabled;
+		if ( disabled === true ) {
+			return;
+		}
+
+		if ( index === undefined ) {
+			disabled = true;
+		} else {
+			index = this._getIndex( index );
+			if ( $.inArray( index, disabled ) !== -1 ) {
+				return;
+			}
+			if ( $.isArray( disabled ) ) {
+				disabled = $.merge( [ index ], disabled ).sort();
+			} else {
+				disabled = [ index ];
+			}
+		}
+		this._setupDisabled( disabled );
+	},
+
+	load: function( index, event ) {
+		index = this._getIndex( index );
+		var that = this,
+			tab = this.tabs.eq( index ),
+			anchor = tab.find( ".ui-tabs-anchor" ),
+			panel = this._getPanelForTab( tab ),
+			eventData = {
+				tab: tab,
+				panel: panel
+			};
+
+		// not remote
+		if ( isLocal( anchor[ 0 ] ) ) {
+			return;
+		}
+
+		this.xhr = $.ajax( this._ajaxSettings( anchor, event, eventData ) );
+
+		// support: jQuery <1.8
+		// jQuery <1.8 returns false if the request is canceled in beforeSend,
+		// but as of 1.8, $.ajax() always returns a jqXHR object.
+		if ( this.xhr && this.xhr.statusText !== "canceled" ) {
+			tab.addClass( "ui-tabs-loading" );
+			panel.attr( "aria-busy", "true" );
+
+			this.xhr
+				.success(function( response ) {
+					// support: jQuery <1.8
+					// http://bugs.jquery.com/ticket/11778
+					setTimeout(function() {
+						panel.html( response );
+						that._trigger( "load", event, eventData );
+					}, 1 );
+				})
+				.complete(function( jqXHR, status ) {
+					// support: jQuery <1.8
+					// http://bugs.jquery.com/ticket/11778
+					setTimeout(function() {
+						if ( status === "abort" ) {
+							that.panels.stop( false, true );
+						}
+
+						tab.removeClass( "ui-tabs-loading" );
+						panel.removeAttr( "aria-busy" );
+
+						if ( jqXHR === that.xhr ) {
+							delete that.xhr;
+						}
+					}, 1 );
+				});
+		}
+	},
+
+	_ajaxSettings: function( anchor, event, eventData ) {
+		var that = this;
+		return {
+			url: anchor.attr( "href" ),
+			beforeSend: function( jqXHR, settings ) {
+				return that._trigger( "beforeLoad", event,
+					$.extend( { jqXHR : jqXHR, ajaxSettings: settings }, eventData ) );
+			}
+		};
+	},
+
+	_getPanelForTab: function( tab ) {
+		var id = $( tab ).attr( "aria-controls" );
+		return this.element.find( this._sanitizeSelector( "#" + id ) );
+	}
+});
+
+})( jQuery );
+
+/*!
+ * jQuery Form Plugin
+ * version: 3.51.0-2014.06.20
+ * Requires jQuery v1.5 or later
+ * Copyright (c) 2014 M. Alsup
+ * Examples and documentation at: http://malsup.com/jquery/form/
+ * Project repository: https://github.com/malsup/form
+ * Dual licensed under the MIT and GPL licenses.
+ * https://github.com/malsup/form#copyright-and-license
+ */
+/*global ActiveXObject */
+
+// AMD support
+(function (factory) {
+    "use strict";
+    if (typeof define === 'function' && define.amd) {
+        // using AMD; register as anon module
+        define(['jquery'], factory);
+    } else {
+        // no AMD; invoke directly
+        factory( (typeof(jQuery) != 'undefined') ? jQuery : window.Zepto );
+    }
+}
+
+(function($) {
+"use strict";
+
+/*
+    Usage Note:
+    -----------
+    Do not use both ajaxSubmit and ajaxForm on the same form.  These
+    functions are mutually exclusive.  Use ajaxSubmit if you want
+    to bind your own submit handler to the form.  For example,
+
+    $(document).ready(function() {
+        $('#myForm').on('submit', function(e) {
+            e.preventDefault(); // <-- important
+            $(this).ajaxSubmit({
+                target: '#output'
+            });
+        });
+    });
+
+    Use ajaxForm when you want the plugin to manage all the event binding
+    for you.  For example,
+
+    $(document).ready(function() {
+        $('#myForm').ajaxForm({
+            target: '#output'
+        });
+    });
+
+    You can also use ajaxForm with delegation (requires jQuery v1.7+), so the
+    form does not have to exist when you invoke ajaxForm:
+
+    $('#myForm').ajaxForm({
+        delegation: true,
+        target: '#output'
+    });
+
+    When using ajaxForm, the ajaxSubmit function will be invoked for you
+    at the appropriate time.
+*/
+
+/**
+ * Feature detection
+ */
+var feature = {};
+feature.fileapi = $("<input type='file'/>").get(0).files !== undefined;
+feature.formdata = window.FormData !== undefined;
+
+var hasProp = !!$.fn.prop;
+
+// attr2 uses prop when it can but checks the return type for
+// an expected string.  this accounts for the case where a form 
+// contains inputs with names like "action" or "method"; in those
+// cases "prop" returns the element
+$.fn.attr2 = function() {
+    if ( ! hasProp ) {
+        return this.attr.apply(this, arguments);
+    }
+    var val = this.prop.apply(this, arguments);
+    if ( ( val && val.jquery ) || typeof val === 'string' ) {
+        return val;
+    }
+    return this.attr.apply(this, arguments);
+};
+
+/**
+ * ajaxSubmit() provides a mechanism for immediately submitting
+ * an HTML form using AJAX.
+ */
+$.fn.ajaxSubmit = function(options) {
+    /*jshint scripturl:true */
+
+    // fast fail if nothing selected (http://dev.jquery.com/ticket/2752)
+    if (!this.length) {
+        log('ajaxSubmit: skipping submit process - no element selected');
+        return this;
+    }
+
+    var method, action, url, $form = this;
+
+    if (typeof options == 'function') {
+        options = { success: options };
+    }
+    else if ( options === undefined ) {
+        options = {};
+    }
+
+    method = options.type || this.attr2('method');
+    action = options.url  || this.attr2('action');
+
+    url = (typeof action === 'string') ? $.trim(action) : '';
+    url = url || window.location.href || '';
+    if (url) {
+        // clean url (don't include hash vaue)
+        url = (url.match(/^([^#]+)/)||[])[1];
+    }
+
+    options = $.extend(true, {
+        url:  url,
+        success: $.ajaxSettings.success,
+        type: method || $.ajaxSettings.type,
+        iframeSrc: /^https/i.test(window.location.href || '') ? 'javascript:false' : 'about:blank'
+    }, options);
+
+    // hook for manipulating the form data before it is extracted;
+    // convenient for use with rich editors like tinyMCE or FCKEditor
+    var veto = {};
+    this.trigger('form-pre-serialize', [this, options, veto]);
+    if (veto.veto) {
+        log('ajaxSubmit: submit vetoed via form-pre-serialize trigger');
+        return this;
+    }
+
+    // provide opportunity to alter form data before it is serialized
+    if (options.beforeSerialize && options.beforeSerialize(this, options) === false) {
+        log('ajaxSubmit: submit aborted via beforeSerialize callback');
+        return this;
+    }
+
+    var traditional = options.traditional;
+    if ( traditional === undefined ) {
+        traditional = $.ajaxSettings.traditional;
+    }
+
+    var elements = [];
+    var qx, a = this.formToArray(options.semantic, elements);
+    if (options.data) {
+        options.extraData = options.data;
+        qx = $.param(options.data, traditional);
+    }
+
+    // give pre-submit callback an opportunity to abort the submit
+    if (options.beforeSubmit && options.beforeSubmit(a, this, options) === false) {
+        log('ajaxSubmit: submit aborted via beforeSubmit callback');
+        return this;
+    }
+
+    // fire vetoable 'validate' event
+    this.trigger('form-submit-validate', [a, this, options, veto]);
+    if (veto.veto) {
+        log('ajaxSubmit: submit vetoed via form-submit-validate trigger');
+        return this;
+    }
+
+    var q = $.param(a, traditional);
+    if (qx) {
+        q = ( q ? (q + '&' + qx) : qx );
+    }
+    if (options.type.toUpperCase() == 'GET') {
+        options.url += (options.url.indexOf('?') >= 0 ? '&' : '?') + q;
+        options.data = null;  // data is null for 'get'
+    }
+    else {
+        options.data = q; // data is the query string for 'post'
+    }
+
+    var callbacks = [];
+    if (options.resetForm) {
+        callbacks.push(function() { $form.resetForm(); });
+    }
+    if (options.clearForm) {
+        callbacks.push(function() { $form.clearForm(options.includeHidden); });
+    }
+
+    // perform a load on the target only if dataType is not provided
+    if (!options.dataType && options.target) {
+        var oldSuccess = options.success || function(){};
+        callbacks.push(function(data) {
+            var fn = options.replaceTarget ? 'replaceWith' : 'html';
+            $(options.target)[fn](data).each(oldSuccess, arguments);
+        });
+    }
+    else if (options.success) {
+        callbacks.push(options.success);
+    }
+
+    options.success = function(data, status, xhr) { // jQuery 1.4+ passes xhr as 3rd arg
+        var context = options.context || this ;    // jQuery 1.4+ supports scope context
+        for (var i=0, max=callbacks.length; i < max; i++) {
+            callbacks[i].apply(context, [data, status, xhr || $form, $form]);
+        }
+    };
+
+    if (options.error) {
+        var oldError = options.error;
+        options.error = function(xhr, status, error) {
+            var context = options.context || this;
+            oldError.apply(context, [xhr, status, error, $form]);
+        };
+    }
+
+     if (options.complete) {
+        var oldComplete = options.complete;
+        options.complete = function(xhr, status) {
+            var context = options.context || this;
+            oldComplete.apply(context, [xhr, status, $form]);
+        };
+    }
+
+    // are there files to upload?
+
+    // [value] (issue #113), also see comment:
+    // https://github.com/malsup/form/commit/588306aedba1de01388032d5f42a60159eea9228#commitcomment-2180219
+    var fileInputs = $('input[type=file]:enabled', this).filter(function() { return $(this).val() !== ''; });
+
+    var hasFileInputs = fileInputs.length > 0;
+    var mp = 'multipart/form-data';
+    var multipart = ($form.attr('enctype') == mp || $form.attr('encoding') == mp);
+
+    var fileAPI = feature.fileapi && feature.formdata;
+    log("fileAPI :" + fileAPI);
+    var shouldUseFrame = (hasFileInputs || multipart) && !fileAPI;
+
+    var jqxhr;
+
+    // options.iframe allows user to force iframe mode
+    // 06-NOV-09: now defaulting to iframe mode if file input is detected
+    if (options.iframe !== false && (options.iframe || shouldUseFrame)) {
+        // hack to fix Safari hang (thanks to Tim Molendijk for this)
+        // see:  http://groups.google.com/group/jquery-dev/browse_thread/thread/36395b7ab510dd5d
+        if (options.closeKeepAlive) {
+            $.get(options.closeKeepAlive, function() {
+                jqxhr = fileUploadIframe(a);
+            });
+        }
+        else {
+            jqxhr = fileUploadIframe(a);
+        }
+    }
+    else if ((hasFileInputs || multipart) && fileAPI) {
+        jqxhr = fileUploadXhr(a);
+    }
+    else {
+        jqxhr = $.ajax(options);
+    }
+
+    $form.removeData('jqxhr').data('jqxhr', jqxhr);
+
+    // clear element array
+    for (var k=0; k < elements.length; k++) {
+        elements[k] = null;
+    }
+
+    // fire 'notify' event
+    this.trigger('form-submit-notify', [this, options]);
+    return this;
+
+    // utility fn for deep serialization
+    function deepSerialize(extraData){
+        var serialized = $.param(extraData, options.traditional).split('&');
+        var len = serialized.length;
+        var result = [];
+        var i, part;
+        for (i=0; i < len; i++) {
+            // #252; undo param space replacement
+            serialized[i] = serialized[i].replace(/\+/g,' ');
+            part = serialized[i].split('=');
+            // #278; use array instead of object storage, favoring array serializations
+            result.push([decodeURIComponent(part[0]), decodeURIComponent(part[1])]);
+        }
+        return result;
+    }
+
+     // XMLHttpRequest Level 2 file uploads (big hat tip to francois2metz)
+    function fileUploadXhr(a) {
+        var formdata = new FormData();
+
+        for (var i=0; i < a.length; i++) {
+            formdata.append(a[i].name, a[i].value);
+        }
+
+        if (options.extraData) {
+            var serializedData = deepSerialize(options.extraData);
+            for (i=0; i < serializedData.length; i++) {
+                if (serializedData[i]) {
+                    formdata.append(serializedData[i][0], serializedData[i][1]);
+                }
+            }
+        }
+
+        options.data = null;
+
+        var s = $.extend(true, {}, $.ajaxSettings, options, {
+            contentType: false,
+            processData: false,
+            cache: false,
+            type: method || 'POST'
+        });
+
+        if (options.uploadProgress) {
+            // workaround because jqXHR does not expose upload property
+            s.xhr = function() {
+                var xhr = $.ajaxSettings.xhr();
+                if (xhr.upload) {
+                    xhr.upload.addEventListener('progress', function(event) {
+                        var percent = 0;
+                        var position = event.loaded || event.position; /*event.position is deprecated*/
+                        var total = event.total;
+                        if (event.lengthComputable) {
+                            percent = Math.ceil(position / total * 100);
+                        }
+                        options.uploadProgress(event, position, total, percent);
+                    }, false);
+                }
+                return xhr;
+            };
+        }
+
+        s.data = null;
+        var beforeSend = s.beforeSend;
+        s.beforeSend = function(xhr, o) {
+            //Send FormData() provided by user
+            if (options.formData) {
+                o.data = options.formData;
+            }
+            else {
+                o.data = formdata;
+            }
+            if(beforeSend) {
+                beforeSend.call(this, xhr, o);
+            }
+        };
+        return $.ajax(s);
+    }
+
+    // private function for handling file uploads (hat tip to YAHOO!)
+    function fileUploadIframe(a) {
+        var form = $form[0], el, i, s, g, id, $io, io, xhr, sub, n, timedOut, timeoutHandle;
+        var deferred = $.Deferred();
+
+        // #341
+        deferred.abort = function(status) {
+            xhr.abort(status);
+        };
+
+        if (a) {
+            // ensure that every serialized input is still enabled
+            for (i=0; i < elements.length; i++) {
+                el = $(elements[i]);
+                if ( hasProp ) {
+                    el.prop('disabled', false);
+                }
+                else {
+                    el.removeAttr('disabled');
+                }
+            }
+        }
+
+        s = $.extend(true, {}, $.ajaxSettings, options);
+        s.context = s.context || s;
+        id = 'jqFormIO' + (new Date().getTime());
+        if (s.iframeTarget) {
+            $io = $(s.iframeTarget);
+            n = $io.attr2('name');
+            if (!n) {
+                $io.attr2('name', id);
+            }
+            else {
+                id = n;
+            }
+        }
+        else {
+            $io = $('<iframe name="' + id + '" src="'+ s.iframeSrc +'" />');
+            $io.css({ position: 'absolute', top: '-1000px', left: '-1000px' });
+        }
+        io = $io[0];
+
+
+        xhr = { // mock object
+            aborted: 0,
+            responseText: null,
+            responseXML: null,
+            status: 0,
+            statusText: 'n/a',
+            getAllResponseHeaders: function() {},
+            getResponseHeader: function() {},
+            setRequestHeader: function() {},
+            abort: function(status) {
+                var e = (status === 'timeout' ? 'timeout' : 'aborted');
+                log('aborting upload... ' + e);
+                this.aborted = 1;
+
+                try { // #214, #257
+                    if (io.contentWindow.document.execCommand) {
+                        io.contentWindow.document.execCommand('Stop');
+                    }
+                }
+                catch(ignore) {}
+
+                $io.attr('src', s.iframeSrc); // abort op in progress
+                xhr.error = e;
+                if (s.error) {
+                    s.error.call(s.context, xhr, e, status);
+                }
+                if (g) {
+                    $.event.trigger("ajaxError", [xhr, s, e]);
+                }
+                if (s.complete) {
+                    s.complete.call(s.context, xhr, e);
+                }
+            }
+        };
+
+        g = s.global;
+        // trigger ajax global events so that activity/block indicators work like normal
+        if (g && 0 === $.active++) {
+            $.event.trigger("ajaxStart");
+        }
+        if (g) {
+            $.event.trigger("ajaxSend", [xhr, s]);
+        }
+
+        if (s.beforeSend && s.beforeSend.call(s.context, xhr, s) === false) {
+            if (s.global) {
+                $.active--;
+            }
+            deferred.reject();
+            return deferred;
+        }
+        if (xhr.aborted) {
+            deferred.reject();
+            return deferred;
+        }
+
+        // add submitting element to data if we know it
+        sub = form.clk;
+        if (sub) {
+            n = sub.name;
+            if (n && !sub.disabled) {
+                s.extraData = s.extraData || {};
+                s.extraData[n] = sub.value;
+                if (sub.type == "image") {
+                    s.extraData[n+'.x'] = form.clk_x;
+                    s.extraData[n+'.y'] = form.clk_y;
+                }
+            }
+        }
+
+        var CLIENT_TIMEOUT_ABORT = 1;
+        var SERVER_ABORT = 2;
+                
+        function getDoc(frame) {
+            /* it looks like contentWindow or contentDocument do not
+             * carry the protocol property in ie8, when running under ssl
+             * frame.document is the only valid response document, since
+             * the protocol is know but not on the other two objects. strange?
+             * "Same origin policy" http://en.wikipedia.org/wiki/Same_origin_policy
+             */
+            
+            var doc = null;
+            
+            // IE8 cascading access check
+            try {
+                if (frame.contentWindow) {
+                    doc = frame.contentWindow.document;
+                }
+            } catch(err) {
+                // IE8 access denied under ssl & missing protocol
+                log('cannot get iframe.contentWindow document: ' + err);
+            }
+
+            if (doc) { // successful getting content
+                return doc;
+            }
+
+            try { // simply checking may throw in ie8 under ssl or mismatched protocol
+                doc = frame.contentDocument ? frame.contentDocument : frame.document;
+            } catch(err) {
+                // last attempt
+                log('cannot get iframe.contentDocument: ' + err);
+                doc = frame.document;
+            }
+            return doc;
+        }
+
+        // Rails CSRF hack (thanks to Yvan Barthelemy)
+        var csrf_token = $('meta[name=csrf-token]').attr('content');
+        var csrf_param = $('meta[name=csrf-param]').attr('content');
+        if (csrf_param && csrf_token) {
+            s.extraData = s.extraData || {};
+            s.extraData[csrf_param] = csrf_token;
+        }
+
+        // take a breath so that pending repaints get some cpu time before the upload starts
+        function doSubmit() {
+            // make sure form attrs are set
+            var t = $form.attr2('target'), 
+                a = $form.attr2('action'), 
+                mp = 'multipart/form-data',
+                et = $form.attr('enctype') || $form.attr('encoding') || mp;
+
+            // update form attrs in IE friendly way
+            form.setAttribute('target',id);
+            if (!method || /post/i.test(method) ) {
+                form.setAttribute('method', 'POST');
+            }
+            if (a != s.url) {
+                form.setAttribute('action', s.url);
+            }
+
+            // ie borks in some cases when setting encoding
+            if (! s.skipEncodingOverride && (!method || /post/i.test(method))) {
+                $form.attr({
+                    encoding: 'multipart/form-data',
+                    enctype:  'multipart/form-data'
+                });
+            }
+
+            // support timout
+            if (s.timeout) {
+                timeoutHandle = setTimeout(function() { timedOut = true; cb(CLIENT_TIMEOUT_ABORT); }, s.timeout);
+            }
+
+            // look for server aborts
+            function checkState() {
+                try {
+                    var state = getDoc(io).readyState;
+                    log('state = ' + state);
+                    if (state && state.toLowerCase() == 'uninitialized') {
+                        setTimeout(checkState,50);
+                    }
+                }
+                catch(e) {
+                    log('Server abort: ' , e, ' (', e.name, ')');
+                    cb(SERVER_ABORT);
+                    if (timeoutHandle) {
+                        clearTimeout(timeoutHandle);
+                    }
+                    timeoutHandle = undefined;
+                }
+            }
+
+            // add "extra" data to form if provided in options
+            var extraInputs = [];
+            try {
+                if (s.extraData) {
+                    for (var n in s.extraData) {
+                        if (s.extraData.hasOwnProperty(n)) {
+                           // if using the $.param format that allows for multiple values with the same name
+                           if($.isPlainObject(s.extraData[n]) && s.extraData[n].hasOwnProperty('name') && s.extraData[n].hasOwnProperty('value')) {
+                               extraInputs.push(
+                               $('<input type="hidden" name="'+s.extraData[n].name+'">').val(s.extraData[n].value)
+                                   .appendTo(form)[0]);
+                           } else {
+                               extraInputs.push(
+                               $('<input type="hidden" name="'+n+'">').val(s.extraData[n])
+                                   .appendTo(form)[0]);
+                           }
+                        }
+                    }
+                }
+
+                if (!s.iframeTarget) {
+                    // add iframe to doc and submit the form
+                    $io.appendTo('body');
+                }
+                if (io.attachEvent) {
+                    io.attachEvent('onload', cb);
+                }
+                else {
+                    io.addEventListener('load', cb, false);
+                }
+                setTimeout(checkState,15);
+
+                try {
+                    form.submit();
+                } catch(err) {
+                    // just in case form has element with name/id of 'submit'
+                    var submitFn = document.createElement('form').submit;
+                    submitFn.apply(form);
+                }
+            }
+            finally {
+                // reset attrs and remove "extra" input elements
+                form.setAttribute('action',a);
+                form.setAttribute('enctype', et); // #380
+                if(t) {
+                    form.setAttribute('target', t);
+                } else {
+                    $form.removeAttr('target');
+                }
+                $(extraInputs).remove();
+            }
+        }
+
+        if (s.forceSync) {
+            doSubmit();
+        }
+        else {
+            setTimeout(doSubmit, 10); // this lets dom updates render
+        }
+
+        var data, doc, domCheckCount = 50, callbackProcessed;
+
+        function cb(e) {
+            if (xhr.aborted || callbackProcessed) {
+                return;
+            }
+            
+            doc = getDoc(io);
+            if(!doc) {
+                log('cannot access response document');
+                e = SERVER_ABORT;
+            }
+            if (e === CLIENT_TIMEOUT_ABORT && xhr) {
+                xhr.abort('timeout');
+                deferred.reject(xhr, 'timeout');
+                return;
+            }
+            else if (e == SERVER_ABORT && xhr) {
+                xhr.abort('server abort');
+                deferred.reject(xhr, 'error', 'server abort');
+                return;
+            }
+
+            if (!doc || doc.location.href == s.iframeSrc) {
+                // response not received yet
+                if (!timedOut) {
+                    return;
+                }
+            }
+            if (io.detachEvent) {
+                io.detachEvent('onload', cb);
+            }
+            else {
+                io.removeEventListener('load', cb, false);
+            }
+
+            var status = 'success', errMsg;
+            try {
+                if (timedOut) {
+                    throw 'timeout';
+                }
+
+                var isXml = s.dataType == 'xml' || doc.XMLDocument || $.isXMLDoc(doc);
+                log('isXml='+isXml);
+                if (!isXml && window.opera && (doc.body === null || !doc.body.innerHTML)) {
+                    if (--domCheckCount) {
+                        // in some browsers (Opera) the iframe DOM is not always traversable when
+                        // the onload callback fires, so we loop a bit to accommodate
+                        log('requeing onLoad callback, DOM not available');
+                        setTimeout(cb, 250);
+                        return;
+                    }
+                    // let this fall through because server response could be an empty document
+                    //log('Could not access iframe DOM after mutiple tries.');
+                    //throw 'DOMException: not available';
+                }
+
+                //log('response detected');
+                var docRoot = doc.body ? doc.body : doc.documentElement;
+                xhr.responseText = docRoot ? docRoot.innerHTML : null;
+                xhr.responseXML = doc.XMLDocument ? doc.XMLDocument : doc;
+                if (isXml) {
+                    s.dataType = 'xml';
+                }
+                xhr.getResponseHeader = function(header){
+                    var headers = {'content-type': s.dataType};
+                    return headers[header.toLowerCase()];
+                };
+                // support for XHR 'status' & 'statusText' emulation :
+                if (docRoot) {
+                    xhr.status = Number( docRoot.getAttribute('status') ) || xhr.status;
+                    xhr.statusText = docRoot.getAttribute('statusText') || xhr.statusText;
+                }
+
+                var dt = (s.dataType || '').toLowerCase();
+                var scr = /(json|script|text)/.test(dt);
+                if (scr || s.textarea) {
+                    // see if user embedded response in textarea
+                    var ta = doc.getElementsByTagName('textarea')[0];
+                    if (ta) {
+                        xhr.responseText = ta.value;
+                        // support for XHR 'status' & 'statusText' emulation :
+                        xhr.status = Number( ta.getAttribute('status') ) || xhr.status;
+                        xhr.statusText = ta.getAttribute('statusText') || xhr.statusText;
+                    }
+                    else if (scr) {
+                        // account for browsers injecting pre around json response
+                        var pre = doc.getElementsByTagName('pre')[0];
+                        var b = doc.getElementsByTagName('body')[0];
+                        if (pre) {
+                            xhr.responseText = pre.textContent ? pre.textContent : pre.innerText;
+                        }
+                        else if (b) {
+                            xhr.responseText = b.textContent ? b.textContent : b.innerText;
+                        }
+                    }
+                }
+                else if (dt == 'xml' && !xhr.responseXML && xhr.responseText) {
+                    xhr.responseXML = toXml(xhr.responseText);
+                }
+
+                try {
+                    data = httpData(xhr, dt, s);
+                }
+                catch (err) {
+                    status = 'parsererror';
+                    xhr.error = errMsg = (err || status);
+                }
+            }
+            catch (err) {
+                log('error caught: ',err);
+                status = 'error';
+                xhr.error = errMsg = (err || status);
+            }
+
+            if (xhr.aborted) {
+                log('upload aborted');
+                status = null;
+            }
+
+            if (xhr.status) { // we've set xhr.status
+                status = (xhr.status >= 200 && xhr.status < 300 || xhr.status === 304) ? 'success' : 'error';
+            }
+
+            // ordering of these callbacks/triggers is odd, but that's how $.ajax does it
+            if (status === 'success') {
+                if (s.success) {
+                    s.success.call(s.context, data, 'success', xhr);
+                }
+                deferred.resolve(xhr.responseText, 'success', xhr);
+                if (g) {
+                    $.event.trigger("ajaxSuccess", [xhr, s]);
+                }
+            }
+            else if (status) {
+                if (errMsg === undefined) {
+                    errMsg = xhr.statusText;
+                }
+                if (s.error) {
+                    s.error.call(s.context, xhr, status, errMsg);
+                }
+                deferred.reject(xhr, 'error', errMsg);
+                if (g) {
+                    $.event.trigger("ajaxError", [xhr, s, errMsg]);
+                }
+            }
+
+            if (g) {
+                $.event.trigger("ajaxComplete", [xhr, s]);
+            }
+
+            if (g && ! --$.active) {
+                $.event.trigger("ajaxStop");
+            }
+
+            if (s.complete) {
+                s.complete.call(s.context, xhr, status);
+            }
+
+            callbackProcessed = true;
+            if (s.timeout) {
+                clearTimeout(timeoutHandle);
+            }
+
+            // clean up
+            setTimeout(function() {
+                if (!s.iframeTarget) {
+                    $io.remove();
+                }
+                else { //adding else to clean up existing iframe response.
+                    $io.attr('src', s.iframeSrc);
+                }
+                xhr.responseXML = null;
+            }, 100);
+        }
+
+        var toXml = $.parseXML || function(s, doc) { // use parseXML if available (jQuery 1.5+)
+            if (window.ActiveXObject) {
+                doc = new ActiveXObject('Microsoft.XMLDOM');
+                doc.async = 'false';
+                doc.loadXML(s);
+            }
+            else {
+                doc = (new DOMParser()).parseFromString(s, 'text/xml');
+            }
+            return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
+        };
+        var parseJSON = $.parseJSON || function(s) {
+            /*jslint evil:true */
+            return window['eval']('(' + s + ')');
+        };
+
+        var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
+
+            var ct = xhr.getResponseHeader('content-type') || '',
+                xml = type === 'xml' || !type && ct.indexOf('xml') >= 0,
+                data = xml ? xhr.responseXML : xhr.responseText;
+
+            if (xml && data.documentElement.nodeName === 'parsererror') {
+                if ($.error) {
+                    $.error('parsererror');
+                }
+            }
+            if (s && s.dataFilter) {
+                data = s.dataFilter(data, type);
+            }
+            if (typeof data === 'string') {
+                if (type === 'json' || !type && ct.indexOf('json') >= 0) {
+                    data = parseJSON(data);
+                } else if (type === "script" || !type && ct.indexOf("javascript") >= 0) {
+                    $.globalEval(data);
+                }
+            }
+            return data;
+        };
+
+        return deferred;
+    }
+};
+
+/**
+ * ajaxForm() provides a mechanism for fully automating form submission.
+ *
+ * The advantages of using this method instead of ajaxSubmit() are:
+ *
+ * 1: This method will include coordinates for <input type="image" /> elements (if the element
+ *    is used to submit the form).
+ * 2. This method will include the submit element's name/value data (for the element that was
+ *    used to submit the form).
+ * 3. This method binds the submit() method to the form for you.
+ *
+ * The options argument for ajaxForm works exactly as it does for ajaxSubmit.  ajaxForm merely
+ * passes the options argument along after properly binding events for submit elements and
+ * the form itself.
+ */
+$.fn.ajaxForm = function(options) {
+    options = options || {};
+    options.delegation = options.delegation && $.isFunction($.fn.on);
+
+    // in jQuery 1.3+ we can fix mistakes with the ready state
+    if (!options.delegation && this.length === 0) {
+        var o = { s: this.selector, c: this.context };
+        if (!$.isReady && o.s) {
+            log('DOM not ready, queuing ajaxForm');
+            $(function() {
+                $(o.s,o.c).ajaxForm(options);
+            });
+            return this;
+        }
+        // is your DOM ready?  http://docs.jquery.com/Tutorials:Introducing_$(document).ready()
+        log('terminating; zero elements found by selector' + ($.isReady ? '' : ' (DOM not ready)'));
+        return this;
+    }
+
+    if ( options.delegation ) {
+        $(document)
+            .off('submit.form-plugin', this.selector, doAjaxSubmit)
+            .off('click.form-plugin', this.selector, captureSubmittingElement)
+            .on('submit.form-plugin', this.selector, options, doAjaxSubmit)
+            .on('click.form-plugin', this.selector, options, captureSubmittingElement);
+        return this;
+    }
+
+    return this.ajaxFormUnbind()
+        .bind('submit.form-plugin', options, doAjaxSubmit)
+        .bind('click.form-plugin', options, captureSubmittingElement);
+};
+
+// private event handlers
+function doAjaxSubmit(e) {
+    /*jshint validthis:true */
+    var options = e.data;
+    if (!e.isDefaultPrevented()) { // if event has been canceled, don't proceed
+        e.preventDefault();
+        $(e.target).ajaxSubmit(options); // #365
+    }
+}
+
+function captureSubmittingElement(e) {
+    /*jshint validthis:true */
+    var target = e.target;
+    var $el = $(target);
+    if (!($el.is("[type=submit],[type=image]"))) {
+        // is this a child element of the submit el?  (ex: a span within a button)
+        var t = $el.closest('[type=submit]');
+        if (t.length === 0) {
+            return;
+        }
+        target = t[0];
+    }
+    var form = this;
+    form.clk = target;
+    if (target.type == 'image') {
+        if (e.offsetX !== undefined) {
+            form.clk_x = e.offsetX;
+            form.clk_y = e.offsetY;
+        } else if (typeof $.fn.offset == 'function') {
+            var offset = $el.offset();
+            form.clk_x = e.pageX - offset.left;
+            form.clk_y = e.pageY - offset.top;
+        } else {
+            form.clk_x = e.pageX - target.offsetLeft;
+            form.clk_y = e.pageY - target.offsetTop;
+        }
+    }
+    // clear form vars
+    setTimeout(function() { form.clk = form.clk_x = form.clk_y = null; }, 100);
+}
+
+
+// ajaxFormUnbind unbinds the event handlers that were bound by ajaxForm
+$.fn.ajaxFormUnbind = function() {
+    return this.unbind('submit.form-plugin click.form-plugin');
+};
+
+/**
+ * formToArray() gathers form element data into an array of objects that can
+ * be passed to any of the following ajax functions: $.get, $.post, or load.
+ * Each object in the array has both a 'name' and 'value' property.  An example of
+ * an array for a simple login form might be:
+ *
+ * [ { name: 'username', value: 'jresig' }, { name: 'password', value: 'secret' } ]
+ *
+ * It is this array that is passed to pre-submit callback functions provided to the
+ * ajaxSubmit() and ajaxForm() methods.
+ */
+$.fn.formToArray = function(semantic, elements) {
+    var a = [];
+    if (this.length === 0) {
+        return a;
+    }
+
+    var form = this[0];
+    var formId = this.attr('id');
+    var els = semantic ? form.getElementsByTagName('*') : form.elements;
+    var els2;
+
+    if (els && !/MSIE [678]/.test(navigator.userAgent)) { // #390
+        els = $(els).get();  // convert to standard array
+    }
+
+    // #386; account for inputs outside the form which use the 'form' attribute
+    if ( formId ) {
+        els2 = $(':input[form="' + formId + '"]').get(); // hat tip @thet
+        if ( els2.length ) {
+            els = (els || []).concat(els2);
+        }
+    }
+
+    if (!els || !els.length) {
+        return a;
+    }
+
+    var i,j,n,v,el,max,jmax;
+    for(i=0, max=els.length; i < max; i++) {
+        el = els[i];
+        n = el.name;
+        if (!n || el.disabled) {
+            continue;
+        }
+
+        if (semantic && form.clk && el.type == "image") {
+            // handle image inputs on the fly when semantic == true
+            if(form.clk == el) {
+                a.push({name: n, value: $(el).val(), type: el.type });
+                a.push({name: n+'.x', value: form.clk_x}, {name: n+'.y', value: form.clk_y});
+            }
+            continue;
+        }
+
+        v = $.fieldValue(el, true);
+        if (v && v.constructor == Array) {
+            if (elements) {
+                elements.push(el);
+            }
+            for(j=0, jmax=v.length; j < jmax; j++) {
+                a.push({name: n, value: v[j]});
+            }
+        }
+        else if (feature.fileapi && el.type == 'file') {
+            if (elements) {
+                elements.push(el);
+            }
+            var files = el.files;
+            if (files.length) {
+                for (j=0; j < files.length; j++) {
+                    a.push({name: n, value: files[j], type: el.type});
+                }
+            }
+            else {
+                // #180
+                a.push({ name: n, value: '', type: el.type });
+            }
+        }
+        else if (v !== null && typeof v != 'undefined') {
+            if (elements) {
+                elements.push(el);
+            }
+            a.push({name: n, value: v, type: el.type, required: el.required});
+        }
+    }
+
+    if (!semantic && form.clk) {
+        // input type=='image' are not found in elements array! handle it here
+        var $input = $(form.clk), input = $input[0];
+        n = input.name;
+        if (n && !input.disabled && input.type == 'image') {
+            a.push({name: n, value: $input.val()});
+            a.push({name: n+'.x', value: form.clk_x}, {name: n+'.y', value: form.clk_y});
+        }
+    }
+    return a;
+};
+
+/**
+ * Serializes form data into a 'submittable' string. This method will return a string
+ * in the format: name1=value1&amp;name2=value2
+ */
+$.fn.formSerialize = function(semantic) {
+    //hand off to jQuery.param for proper encoding
+    return $.param(this.formToArray(semantic));
+};
+
+/**
+ * Serializes all field elements in the jQuery object into a query string.
+ * This method will return a string in the format: name1=value1&amp;name2=value2
+ */
+$.fn.fieldSerialize = function(successful) {
+    var a = [];
+    this.each(function() {
+        var n = this.name;
+        if (!n) {
+            return;
+        }
+        var v = $.fieldValue(this, successful);
+        if (v && v.constructor == Array) {
+            for (var i=0,max=v.length; i < max; i++) {
+                a.push({name: n, value: v[i]});
+            }
+        }
+        else if (v !== null && typeof v != 'undefined') {
+            a.push({name: this.name, value: v});
+        }
+    });
+    //hand off to jQuery.param for proper encoding
+    return $.param(a);
+};
+
+/**
+ * Returns the value(s) of the element in the matched set.  For example, consider the following form:
+ *
+ *  <form><fieldset>
+ *      <input name="A" type="text" />
+ *      <input name="A" type="text" />
+ *      <input name="B" type="checkbox" value="B1" />
+ *      <input name="B" type="checkbox" value="B2"/>
+ *      <input name="C" type="radio" value="C1" />
+ *      <input name="C" type="radio" value="C2" />
+ *  </fieldset></form>
+ *
+ *  var v = $('input[type=text]').fieldValue();
+ *  // if no values are entered into the text inputs
+ *  v == ['','']
+ *  // if values entered into the text inputs are 'foo' and 'bar'
+ *  v == ['foo','bar']
+ *
+ *  var v = $('input[type=checkbox]').fieldValue();
+ *  // if neither checkbox is checked
+ *  v === undefined
+ *  // if both checkboxes are checked
+ *  v == ['B1', 'B2']
+ *
+ *  var v = $('input[type=radio]').fieldValue();
+ *  // if neither radio is checked
+ *  v === undefined
+ *  // if first radio is checked
+ *  v == ['C1']
+ *
+ * The successful argument controls whether or not the field element must be 'successful'
+ * (per http://www.w3.org/TR/html4/interact/forms.html#successful-controls).
+ * The default value of the successful argument is true.  If this value is false the value(s)
+ * for each element is returned.
+ *
+ * Note: This method *always* returns an array.  If no valid value can be determined the
+ *    array will be empty, otherwise it will contain one or more values.
+ */
+$.fn.fieldValue = function(successful) {
+    for (var val=[], i=0, max=this.length; i < max; i++) {
+        var el = this[i];
+        var v = $.fieldValue(el, successful);
+        if (v === null || typeof v == 'undefined' || (v.constructor == Array && !v.length)) {
+            continue;
+        }
+        if (v.constructor == Array) {
+            $.merge(val, v);
+        }
+        else {
+            val.push(v);
+        }
+    }
+    return val;
+};
+
+/**
+ * Returns the value of the field element.
+ */
+$.fieldValue = function(el, successful) {
+    var n = el.name, t = el.type, tag = el.tagName.toLowerCase();
+    if (successful === undefined) {
+        successful = true;
+    }
+
+    if (successful && (!n || el.disabled || t == 'reset' || t == 'button' ||
+        (t == 'checkbox' || t == 'radio') && !el.checked ||
+        (t == 'submit' || t == 'image') && el.form && el.form.clk != el ||
+        tag == 'select' && el.selectedIndex == -1)) {
+            return null;
+    }
+
+    if (tag == 'select') {
+        var index = el.selectedIndex;
+        if (index < 0) {
+            return null;
+        }
+        var a = [], ops = el.options;
+        var one = (t == 'select-one');
+        var max = (one ? index+1 : ops.length);
+        for(var i=(one ? index : 0); i < max; i++) {
+            var op = ops[i];
+            if (op.selected) {
+                var v = op.value;
+                if (!v) { // extra pain for IE...
+                    v = (op.attributes && op.attributes.value && !(op.attributes.value.specified)) ? op.text : op.value;
+                }
+                if (one) {
+                    return v;
+                }
+                a.push(v);
+            }
+        }
+        return a;
+    }
+    return $(el).val();
+};
+
+/**
+ * Clears the form data.  Takes the following actions on the form's input fields:
+ *  - input text fields will have their 'value' property set to the empty string
+ *  - select elements will have their 'selectedIndex' property set to -1
+ *  - checkbox and radio inputs will have their 'checked' property set to false
+ *  - inputs of type submit, button, reset, and hidden will *not* be effected
+ *  - button elements will *not* be effected
+ */
+$.fn.clearForm = function(includeHidden) {
+    return this.each(function() {
+        $('input,select,textarea', this).clearFields(includeHidden);
+    });
+};
+
+/**
+ * Clears the selected form elements.
+ */
+$.fn.clearFields = $.fn.clearInputs = function(includeHidden) {
+    var re = /^(?:color|date|datetime|email|month|number|password|range|search|tel|text|time|url|week)$/i; // 'hidden' is not in this list
+    return this.each(function() {
+        var t = this.type, tag = this.tagName.toLowerCase();
+        if (re.test(t) || tag == 'textarea') {
+            this.value = '';
+        }
+        else if (t == 'checkbox' || t == 'radio') {
+            this.checked = false;
+        }
+        else if (tag == 'select') {
+            this.selectedIndex = -1;
+        }
+        else if (t == "file") {
+            if (/MSIE/.test(navigator.userAgent)) {
+                $(this).replaceWith($(this).clone(true));
+            } else {
+                $(this).val('');
+            }
+        }
+        else if (includeHidden) {
+            // includeHidden can be the value true, or it can be a selector string
+            // indicating a special test; for example:
+            //  $('#myForm').clearForm('.special:hidden')
+            // the above would clean hidden inputs that have the class of 'special'
+            if ( (includeHidden === true && /hidden/.test(t)) ||
+                 (typeof includeHidden == 'string' && $(this).is(includeHidden)) ) {
+                this.value = '';
+            }
+        }
+    });
+};
+
+/**
+ * Resets the form data.  Causes all form elements to be reset to their original value.
+ */
+$.fn.resetForm = function() {
+    return this.each(function() {
+        // guard against an input with the name of 'reset'
+        // note that IE reports the reset function as an 'object'
+        if (typeof this.reset == 'function' || (typeof this.reset == 'object' && !this.reset.nodeType)) {
+            this.reset();
+        }
+    });
+};
+
+/**
+ * Enables or disables any matching elements.
+ */
+$.fn.enable = function(b) {
+    if (b === undefined) {
+        b = true;
+    }
+    return this.each(function() {
+        this.disabled = !b;
+    });
+};
+
+/**
+ * Checks/unchecks any matching checkboxes or radio buttons and
+ * selects/deselects and matching option elements.
+ */
+$.fn.selected = function(select) {
+    if (select === undefined) {
+        select = true;
+    }
+    return this.each(function() {
+        var t = this.type;
+        if (t == 'checkbox' || t == 'radio') {
+            this.checked = select;
+        }
+        else if (this.tagName.toLowerCase() == 'option') {
+            var $sel = $(this).parent('select');
+            if (select && $sel[0] && $sel[0].type == 'select-one') {
+                // deselect all other options
+                $sel.find('option').selected(false);
+            }
+            this.selected = select;
+        }
+    });
+};
+
+// expose debug var
+$.fn.ajaxSubmit.debug = false;
+
+// helper fn for console logging
+function log() {
+    if (!$.fn.ajaxSubmit.debug) {
+        return;
+    }
+    var msg = '[jquery.form] ' + Array.prototype.join.call(arguments,'');
+    if (window.console && window.console.log) {
+        window.console.log(msg);
+    }
+    else if (window.opera && window.opera.postError) {
+        window.opera.postError(msg);
+    }
+}
+
+}));
+
+// !! I prefer this to equaliser but equaliser may have more functions and may have a CDN
+
+/**
+* jquery.matchHeight.js v0.5.2
+* http://brm.io/jquery-match-height/
+* License: MIT
+*/
+
+;(function($) {
+    /*
+    *  internal
+    */
+
+    var _previousResizeWidth = -1,
+        _updateTimeout = -1;
+
+    /*
+    *  _rows
+    *  utility function returns array of jQuery selections representing each row
+    *  (as displayed after float wrapping applied by browser)
+    */
+
+    var _rows = function(elements) {
+        var tolerance = 1,
+            $elements = $(elements),
+            lastTop = null,
+            rows = [];
+
+        // group elements by their top position
+        $elements.each(function(){
+            var $that = $(this),
+                top = $that.offset().top - _parse($that.css('margin-top')),
+                lastRow = rows.length > 0 ? rows[rows.length - 1] : null;
+
+            if (lastRow === null) {
+                // first item on the row, so just push it
+                rows.push($that);
+            } else {
+                // if the row top is the same, add to the row group
+                if (Math.floor(Math.abs(lastTop - top)) <= tolerance) {
+                    rows[rows.length - 1] = lastRow.add($that);
+                } else {
+                    // otherwise start a new row group
+                    rows.push($that);
+                }
+            }
+
+            // keep track of the last row top
+            lastTop = top;
+        });
+
+        return rows;
+    };
+
+    /*
+    *  _parse
+    *  value parse utility function
+    */
+
+    var _parse = function(value) {
+        // parse value and convert NaN to 0
+        return parseFloat(value) || 0;
+    };
+
+    /*
+    *  $.fn.matchHeight
+    *  plugin definition
+    */
+
+    $.fn.matchHeight = function(byRow) {
+
+        // handle matchHeight('remove')
+        if (byRow === 'remove') {
+            var that = this;
+
+            // remove fixed height from all selected elements
+            this.css('height', '');
+
+            // remove selected elements from all groups
+            $.each($.fn.matchHeight._groups, function(key, group) {
+                group.elements = group.elements.not(that);
+            });
+
+            // TODO: cleanup empty groups
+
+            return this;
+        }
+
+        if (this.length <= 1)
+            return this;
+
+        // byRow default to true
+        // Changed the default to false 
+        byRow = (typeof byRow !== 'undefined') ? byRow : false;
+
+        // keep track of this group so we can re-apply later on load and resize events
+        $.fn.matchHeight._groups.push({
+            elements: this,
+            byRow: byRow
+        });
+
+        // match each element's height to the tallest element in the selection
+        $.fn.matchHeight._apply(this, byRow);
+
+        return this;
+    };
+
+    /*
+    *  plugin global options
+    */
+
+    $.fn.matchHeight._groups = [];
+    $.fn.matchHeight._throttle = 80;
+    $.fn.matchHeight._maintainScroll = false;
+
+    /*
+    *  $.fn.matchHeight._apply
+    *  apply matchHeight to given elements
+    */
+
+    $.fn.matchHeight._apply = function(elements, byRow) {
+        var $elements = $(elements),
+            rows = [$elements];
+
+        // take note of scroll position
+        var scrollTop = $(window).scrollTop(),
+            htmlHeight = $('html').outerHeight(true);
+
+        // temporarily must force hidden parents visible
+        var $hiddenParents = $elements.parents().filter(':hidden');
+        $hiddenParents.css('display', 'block');
+
+        // get rows if using byRow, otherwise assume one row
+        if (byRow) {
+
+            // must first force an arbitrary equal height so floating elements break evenly
+            $elements.each(function() {
+                var $that = $(this),
+                    display = $that.css('display') === 'inline-block' ? 'inline-block' : 'block';
+
+                // cache the original inline style
+                $that.data('style-cache', $that.attr('style'));
+
+                $that.css({
+                    'display': display,
+                    'padding-top': '0',
+                    'padding-bottom': '0',
+                    'border-top-width': '0',
+                    'border-bottom-width': '0',
+                    'height': '100px'
+                });
+            });
+
+            // get the array of rows (based on element top position)
+            rows = _rows($elements);
+
+            // revert original inline styles
+            $elements.each(function() {
+                var $that = $(this);
+
+                $that.attr('style', $that.data('style-cache') || '')
+                     .css('height', '');
+            });
+        }
+
+        $.each(rows, function(key, row) {
+            var $row = $(row),
+                maxHeight = 0;
+
+            // skip apply to rows with only one item
+            if (byRow && $row.length <= 1)
+                return;
+
+            // iterate the row and find the max height
+            $row.each(function(){
+                var $that = $(this),
+                    display = $that.css('display') === 'inline-block' ? 'inline-block' : 'block';
+
+                // ensure we get the correct actual height (and not a previously set height value)
+                $that.css({ 'display': display, 'height': '' });
+
+                // find the max height (including padding, but not margin)
+                if ($that.outerHeight(false) > maxHeight)
+                    maxHeight = $that.outerHeight(false);
+
+                // revert display block
+                $that.css('display', '');
+            });
+
+            // iterate the row and apply the height to all elements
+            $row.each(function(){
+                var $that = $(this),
+                    verticalPadding = 0;
+
+                // handle padding and border correctly (required when not using border-box)
+                if ($that.css('box-sizing') !== 'border-box') {
+                    verticalPadding += _parse($that.css('border-top-width')) + _parse($that.css('border-bottom-width'));
+                    verticalPadding += _parse($that.css('padding-top')) + _parse($that.css('padding-bottom'));
+                }
+
+                // set the height (accounting for padding and border)
+                $that.css('height', maxHeight - verticalPadding);
+            });
+        });
+
+        // revert hidden parents
+        $hiddenParents.css('display', '');
+
+        // restore scroll position if enabled
+        if ($.fn.matchHeight._maintainScroll)
+            $(window).scrollTop((scrollTop / htmlHeight) * $('html').outerHeight(true));
+
+        return this;
+    };
+
+    /*
+    *  $.fn.matchHeight._applyDataApi
+    *  applies matchHeight to all elements with a data-match-height attribute
+    */
+
+    $.fn.matchHeight._applyDataApi = function() {
+        var groups = {};
+
+        // generate groups by their groupId set by elements using data-match-height
+        $('[data-match-height], [data-mh]').each(function() {
+            var $this = $(this),
+                groupId = $this.attr('data-match-height') || $this.attr('data-mh');
+            if (groupId in groups) {
+                groups[groupId] = groups[groupId].add($this);
+            } else {
+                groups[groupId] = $this;
+            }
+        });
+
+        // apply matchHeight to each group
+        $.each(groups, function() {
+            this.matchHeight(true);
+        });
+    };
+
+    /*
+    *  $.fn.matchHeight._update
+    *  updates matchHeight on all current groups with their correct options
+    */
+
+    var _update = function() {
+        $.each($.fn.matchHeight._groups, function() {
+            $.fn.matchHeight._apply(this.elements, this.byRow);
+        });
+    };
+
+    $.fn.matchHeight._update = function(throttle, event) {
+        // prevent update if fired from a resize event
+        // where the viewport width hasn't actually changed
+        // fixes an event looping bug in IE8
+        if (event && event.type === 'resize') {
+            var windowWidth = $(window).width();
+            if (windowWidth === _previousResizeWidth)
+                return;
+            _previousResizeWidth = windowWidth;
+        }
+
+        // throttle updates
+        if (!throttle) {
+            _update();
+        } else if (_updateTimeout === -1) {
+            _updateTimeout = setTimeout(function() {
+                _update();
+                _updateTimeout = -1;
+            }, $.fn.matchHeight._throttle);
+        }
+    };
+
+    /*
+    *  bind events
+    */
+
+    // apply on DOM ready event
+    $($.fn.matchHeight._applyDataApi);
+
+    // update heights on load and resize events
+    $(window).bind('load', function(event) {
+        $.fn.matchHeight._update();
+    });
+
+    // throttled update heights on resize events
+    $(window).bind('resize orientationchange', function(event) {
+        $.fn.matchHeight._update(true, event);
+    });
+
+})(jQuery);
+/*
+ * jquery.tabbable
+ * https://github.com/damian/jquery.tabbable
+ *
+ * Copyright (c) 2013 Damian Nicholson
+ * Licensed under the MIT license.
+ */
+(function($) {
+
+  /**
+   * A collection of functions to determine if an element is tabbable
+   *
+   * @class Subject
+   * @static
+   */
+  var Subject = {
+
+    /**
+     * Contains a list of focussable elements
+     *
+     * @property FOCUSSABLE_ELEMS
+     * @type Array
+     * @static
+     * @final
+     */
+    FOCUSSABLE_ELEMS : [
+      'input',
+      'select',
+      'textarea',
+      'button'
+    ],
+
+    /**
+     * Determines if the DOMNode is tabbable
+     *
+     * @method isTabbable
+     * @param {Node} elem The DOMNode under question
+     * @return {Boolean}
+     */
+    isTabbable: function(elem) {
+      return Subject.hasTabindex(elem) && Subject.isFocussable(elem) && Subject.isVisible(elem);
+    },
+
+    /**
+     * @method hasTabindex
+     * @param {Node} elem The DOMNode under question
+     * @return {Boolean}
+     */
+    hasTabindex: function(elem) {
+      return elem.tabIndex >= 0;
+    },
+
+    /**
+     * @method isVisible
+     * @param {Node} elem The DOMNode under question
+     * @return {Boolean}
+     */
+    isVisible: function(elem) {
+      return $(elem).is(':visible');
+    },
+
+    /**
+     * @method isFocussable
+     * @param {Node} elem The DOMNode under question
+     * @return {Boolean}
+     * @private
+     */
+    isFocussable: function(elem) {
+      var node = elem.nodeName,
+          regex = new RegExp(Subject.FOCUSSABLE_ELEMS.join('|'), 'gi');
+
+      if (regex.test(node) && !elem.disabled) {
+        return true;
+      }
+
+      if (/a/i.test(node) && elem.href) {
+        return true;
+      }
+
+      return false;
+    }
+  };
+
+  // Adds a tabbable pseudo selector to jQuery
+  $.expr[':'].tabbable = Subject.isTabbable;
+
+}(jQuery));
+Function.prototype.bind = function(a) {var b = this;return function() {return b.apply(a, arguments);}}
+var console=console||{"log":function(){}};
+YUI.add('module', function(Y){
+    var c = { // config
+        bind: $.proxy, // Proxy object (fn, this)
+        s: $, // selector function (selector) + s.on method (ev, fn)
+        extend: Y.mix, // object extend function (child, parent)
+        each: $.each // foreach function (obj, fn(key, val) )
+    };
+    
+    Y.Test.Suite.prototype.run = function(){
+        if(this.hasRun) return;
+        this.hasRun = true;
+        Y.Test.Runner.add(this).run();
+    };
+    Y.namespace("uk.gov.bristol");
+    // Stephens MicroModule Definition
+
+    //     Backbone.js 1.1.2 [extend method]
+    //     (c) 2010-2014 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+    //     Backbone may be freely distributed under the MIT license.
+    //     For all details and documentation:
+    //     http://backbonejs.org
+    var Module = function(selector, options){
+            this.options = this.getOptions(options);
+            selector = (!!selector) ? selector : "body";
+            this.$el = (typeof selector === "object") ? selector : $(selector);
+            if(!this.$el.length) return false;
+            this.setEvents();
+            this.DOM = this.getDOM();
+            this.render(options);
+        },
+        jQueryPlugin = function(name, child){
+            $.fn[name] = function(options){
+                return this.each(function(i, el){
+                    return new child($(el), options);
+                });
+            };
+        };
+
+    Module.extend = function(protoProps, staticProps) {
+        var parent = this;
+        var child;
+
+        // The constructor function for the new subclass is either defined by you
+        // (the "constructor" property in your `extend` definition), or defaulted
+        // by us to simply call the parent's constructor.
+        child = function(){ return parent.apply(this, arguments); };
+
+        // Add static properties to the constructor function, if supplied.
+        c.s.extend(child, parent, staticProps);
+
+        // Set the prototype chain to inherit from `parent`, without calling
+        // `parent`'s constructor function.
+        var Surrogate = function(){ this.constructor = child; };
+        Surrogate.prototype = parent.prototype;
+        child.prototype = new Surrogate;
+
+        // Add prototype properties (instance properties) to the subclass,
+        // if supplied.
+        if (protoProps) c.s.extend(child.prototype, protoProps);
+
+        // Set a convenience property in case the parent's prototype is needed
+        // later.
+        child.__super__ = parent.prototype;
+
+        // If a pluginName is set
+        if(protoProps.pluginName){
+            // Run the jQuery Plugin generator
+            jQueryPlugin(protoProps.pluginName, child);
+        }
+
+        return child;
+    };
+ 
+    c.s.extend(Module.prototype, {
+        events: [],
+        DOM: [],
+        options: [],
+        render: function(){ return this; },
+        getDOM: function() {
+            var dom = [];
+            c.each(this.DOM, function(k, v){
+                if(typeof v === 'object') return;
+                dom[k] = this.$el.find(v);
+            }.bind(this));
+            dom['el'] = this.$el;
+            return dom;
+        },
+        getOptions: function(options){
+            return c.s.extend({}, this.options, options);
+        },
+        setEvents: function(){
+            c.each(this.events, function(k, fn){
+                if(typeof fn === "string") fn = this[fn];
+                var arr = k.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&').match(/^(\S+)\s(.*)/).slice(1), doml,
+                    sel = arr[1].replace(/\\/g, '');
+                    arr[0] = (arr[0]=='hover')?'mouseenter':arr[0];
+                    doml = (sel[0]=="$")? this.DOM[sel.slice(1)] : this.$el.find(sel) ;
+                    this.$el.on(arr[0], doml, fn.bind(this));
+            }.bind(this));
+        },
+    });
+
+    Y.uk.gov.bristol.module = Module;
+
+}, '1.0.1', {
+    requires: [
+        'event',
+        'test',
+        'node-event-simulate',
+        'node',
+        'test-console',
+    ]
+});
+$(function(){
+	return;
+	// Breakpoints
+	var mobile 		= "screen and (max-width: 480px)";
+	var tablet 		= "screen and (min-width: 481px) and (max-width: 769px)";
+	var desktop 	= "screen and (min-width: 769px)";
+	
+	// Rearrange templates based on priority
+	if ($(".span4.priority--primary")[0]){
+		var span4 = $(".span4.priority--primary");
+		var span8 = $(".span8.priority--secondary");
+	}
+	
+	enquire
+		.register(mobile, {
+	
+		    // OPTIONAL
+		    // If supplied, triggered when a media query matches.
+		    match : function() {
+		    	//console.log("MOBILE: match");
+		    	
+		    	if ($(".span4.priority--primary")[0]){
+		    		span4.insertBefore(span8);
+		    	}
+		    },
+		                                
+		    // OPTIONAL
+		    // If supplied, triggered when the media query transitions 
+		    // *from a matched state to an unmatched state*.
+		    unmatch : function() {
+		    	//console.log("MOBILE: unmatch");
+		    	
+		    	if ($(".span4.priority--primary")[0]){
+		    		span4.insertAfter(span8);
+		    	}
+		    	
+		    	// NavigationLists: tiled lists
+		    	$('.tiled.js--matchHeight .tiled__item__title').matchHeight('remove');
+		    	
+		    },    
+		    
+		    // OPTIONAL
+		    // If supplied, triggered once, when the handler is registered.
+		    setup : function() {
+		    	
+		    },    
+		                                
+		    // OPTIONAL, defaults to false
+		    // If set to true, defers execution of the setup function 
+		    // until the first time the media query is matched
+		    deferSetup : true,
+		                                
+		    // OPTIONAL
+		    // If supplied, triggered when handler is unregistered. 
+		    // Place cleanup code here
+		    destroy : function() {}
+		      
+		})
+		.register(tablet, {
+			
+			// TABLET
+		    match : function() {
+		    	//console.log("TABLET: match");
+		    	
+		    	// NavigationLists: tiled lists
+		    	$('.tiled.js--matchHeight .tiled__item__title').matchHeight();
+		    },
+		    
+		    unmatch : function() {
+		    	console.log("TABLET: unmatch");
+		    }
+		      
+		})
+		.register(desktop, {
+			
+			// DESKTOP
+		    match : function() {
+		    	//console.log("DESKTOP: match");
+		    	
+		    	// NavigationLists: tiled lists
+		    	$('.tiled.js--matchHeight .tiled__item__title').matchHeight();
+		    	
+		    	// Parking: visitor permits
+		    	$("#parking__visitor-permits__choose.js--matchHeight .slab").matchHeight();
+		    	
+		    	// Parking: permit details
+		    	$(".permit.js--matchHeight > .permit__inner").matchHeight();
+		    },
+		    
+		    unmatch : function() {
+		    	//console.log("DESKTOP: unmatch");
+		    	
+		    	// Parking: visitor permits
+		    	$("#parking__visitor-permits__choose.js--matchHeight .slab").matchHeight('remove');
+		    	
+		    	// Parking: permit details
+		    	$(".permit.js--matchHeight > .permit__inner").matchHeight('remove');
+		    }
+		      
+		});
+
+	
+});
+
+	
+/**
+ * @fileOverview A jQuery UI Widget that extends the functionality of BCC addresslookup
+ * @author Luke Taylor
+ * @name $.bcc.addresslookup
+ * @dependencies: jQuery, jQuery UI widget factory
+ */
+// (function($){
+// 	return;
+
+// 	'use strict';
+
+// 	$.widget('bcc.addresslookup', {
+// 		// default options
+// 		options: {
+// 			advancedClass: 'address-lookup--isActive',
+// 			dynamicAddressClass: 'address-lookup--isSelected',
+// 			dynamicAddressTemplate: '<div class="panel panel--affirm panel--date $class$"><span class="panel__title">Your selected address:</span><strong class="panel__copy">$message$</strong></div>'
+// 		},
+
+// 		/**
+// 		 * create - private
+// 		 */
+// 		_create: function () {
+			
+// 			// target
+// 			var target = this;
+// 			// element
+// 			var elem = $(this.element);
+
+// 			// add advanced class
+// 			elem.addClass(target.options.advancedClass);
+			
+// 			if( elem.find('.form__item__field--select').length !== 0) {
+// 			// multiselect containing addresses
+// 			var select = $(this.element).find('.form__item__field--select');
+      
+// 			// console.log(select[0]).selectedIndex;
+      
+// 			// output message dynamically if nessecary
+// 			if (select[0].selectedIndex !== 0 && select[0].selectedIndex !== -1) {
+				
+// 				select.closest('.form__item').append(
+// 					target.options.dynamicAddressTemplate
+// 						.replace(/\$class\$/g, target.options.dynamicAddressClass)
+// 						.replace(/\$message\$/g, select.find('option:selected').text())
+// 				);
+// 			}
+
+// 			// select change
+// 			select.change(function () {
+// 				elem.find('.' + target.options.dynamicAddressClass).remove();
+// 				if (select[0].selectedIndex !== 0) {
+// 					$(this).closest('.form__item')
+// 						.append(
+// 								target.options.dynamicAddressTemplate
+// 								.replace(/\$class\$/g, target.options.dynamicAddressClass)
+// 								.replace(/\$message\$/g, select.find('option:selected').text())
+// 						);
+// 					$(this).closest('.form__item').removeClass('form__item--error');
+// 				}
+// 			});
+// 			}
+			
+			
+// 		}
+// 	});
+// })(jQuery);
+/**
+ * @fileOverview A jQuery UI Widget to make a collapsible table
+ * @author Edward Silverton
+ * @name $.bcc.collapsible
+ * @dependencies: jQuery, jQuery UI widget factory
+ */
+
+(function($) {
+  'use strict';
+
+  $.widget('bcc.collapsetable', {
+
+	options: {
+		collapseWidth: 769,
+		collapseClass: 'collapse',
+		collapseCol: '.table__col--details'
+	},
+
+	_create: function() {
+		var that = this;
+		
+		$(window).resize(function(){
+			that._widthChange();
+		});
+		
+		this._widthChange();
+	},
+	
+	_widthChange: function () {
+		
+		var $el = $(this.element),
+			$collapseCols = $($el.find(this.options.collapseCol));
+		
+		if(document.body.clientWidth < this.options.collapseWidth) {
+		
+			if (!$el.hasClass(this.options.collapseClass)){
+				$el.addClass(this.options.collapseClass);
+				
+				// move collapseCol content to first col
+				$collapseCols.each(function(i){
+					var $this = $(this),
+
+					// get previous sibling and move content into it
+						$prevCol = $this.prev(),
+						$contents = $this.contents(),
+						$wrapper = $('<span class="wrapper wrapper--td" />');
+					
+					// if it's a th, add '& ' to wrapper.
+					if ($this.is('th')){
+						$wrapper = $('<span class="wrapper wrapper--th" />');
+						//$wrapper.append('<span class="and"> and </span>');
+					}
+
+					$wrapper.append($contents);
+					$prevCol.append($wrapper);
+					
+					$this.hide();
+				});
+			}
+
+		} else {
+			$el.removeClass(this.options.collapseClass);
+
+			// if collapseCol is empty, move contents back from first col
+			$collapseCols.each(function(i){
+				var $this = $(this);
+				
+				if ($this.is(':empty')){
+					var $prevCol = $this.prev(),
+						$wrapper = $prevCol.find('.wrapper');
+					//$wrapper.find('.and').remove();
+					$this.append($wrapper.contents());
+					$wrapper.remove();
+				}
+				
+				$(this).show();
+			});
+		}
+		
+	}
+
+  });
+
+})(jQuery);
+
+/**
+ * @fileOverview A jQuery UI Widget to make a collapsible element
+ * @author Mark Skinner
+ * @name $.bcc.collapsible
+ * @dependencies: jQuery, jQuery UI widget factory
+ */
+
+(function($) {
+  'use strict';
+
+  $.widget('bcc.collapsible', {
+
+    options: {
+      collapseToggleClass: '.js-collapse__toggle',
+      collapseAreaClass: '.js-collapse__area',
+      collapsedClass: 'is-collapsed',
+      expandedClass: 'is-expanded',
+      duration: 300
+    },
+
+    widgetEventPrefix: 'collapsible_',
+
+    /**
+     * Constructor
+     */
+    _create: function() {
+      var self = this,
+          toggleTrigger = self.element.find(self.options.collapseToggleClass);
+
+      self._on(toggleTrigger, {
+        'click': function() {
+          if(self.element.hasClass(self.options.expandedClass)) {
+            self.standardCollapse();
+          } else {
+            self.standardExpand();
+          }
+        }
+      });
+    },
+
+    /**
+     * Collapse the element
+     *
+     * @param duration
+     * @param complete
+     * @private
+     */
+    _collapse: function(duration, complete) {
+      var self = this;
+      self.element
+          .addClass(self.options.collapsedClass)
+          .removeClass(self.options.expandedClass);
+
+      self.element.find(self.options.collapseAreaClass)
+          .slideUp(duration, function() {
+            if ( typeof complete !== 'undefined' ) {
+              complete();
+            }
+          });
+    },
+
+    /**
+     * Expand the element
+     *
+     * @param duration
+     * @param complete
+     * @private
+     */
+    _expand: function(duration, complete) {
+      var self = this;
+      self.element
+          .addClass(self.options.expandedClass)
+          .removeClass(self.options.collapsedClass);
+
+      self.element.find(self.options.collapseAreaClass)
+          .slideDown(duration, function() {
+            if ( typeof complete !== 'undefined' ) {
+              complete();
+            }
+          });
+    },
+
+    /**
+     * Standard collapse with default duration
+     * @param complete
+     */
+    standardCollapse: function(complete) {
+      this._collapse(this.options.duration, complete);
+    },
+
+    /**
+     * Quick collapse with no duration
+     * @param complete
+     */
+    quickCollapse: function(complete) {
+      this._collapse(0, complete);
+    },
+
+    /**
+     * Standard expand with default duration
+     * @param complete
+     */
+    standardExpand: function(complete) {
+      this._expand(this.options.duration, complete);
+    },
+
+    /**
+     * Quick expand with no duration.
+     * @param complete
+     */
+    quickExpand: function(complete) {
+      this._expand(0, complete);
+    },
+
+    /**
+     * Destroy
+     */
+    _destroy: function() {
+      var self = this;
+
+      self.element
+          .removeClass(self.options.expandedClass)
+          .removeClass(self.options.expandedClass);
+    }
+  });
+
+})(jQuery);
+
+/**
+ * @fileOverview A jQuery UI Widget that extends the functionality of BCC listtable
+ * @author Luke Taylor
+ * @name $.bcc.listtable
+ * @dependencies: jQuery, jQuery UI widget factory
+ */
+(function($){
+
+  'use strict';
+
+  $.widget('bcc.listtable', {
+    // default options
+    options: {
+      advancedClass: 'list-table-advanced'
+    },
+
+    /**
+     * create - private
+     */
+    _create: function () {
+      // target
+      var target = this;
+
+      // add advanced class
+      $(this.element).addClass(target.options.advancedClass);
+
+      // set the heights
+      this.setHeight();
+
+      // click event (this only affects mobile)
+      $(this.element).find('.list-table__row').click(function () {
+        $(this).toggleClass('list-table__row--active');
+      });
+
+      // inject icons
+      $(this.element).find('.list-table__row__item--description').append('<span class="ico ico-right"></span><span class="ico ico-down"></span>');
+
+      // @OPTIMIZE - refactor this is only needed to aid redraw when activity table is hidden inside tab and then revealed
+      $('.tabs__list__activity').click(function () {
+        setTimeout(function () { target.setHeight(); }, 500);
+      });
+
+    },
+
+    /**
+      * setHeight - public
+    */
+    setHeight: function () {
+      $(this.element).find('.list-table__row .grid-wrap').each(function () {
+        $(this).find('.grid-col').height('auto');
+        $(this).find('.grid-col').height($(this).height());
+      });
+    }
+  });
+})(jQuery);
+/**
+ * @fileOverview A jQuery UI Widget that handles overlays
+ * @author Luke Taylor
+ * @name $.bcc.overlays
+ * @dependencies: jQuery, jQuery UI widget factory, magnificpopup
+ */
+(function($){
+
+  'use strict';
+
+  $.widget('bcc.overlays', {
+    // default options
+    options: {
+      initClass: 'js-overlay-init'
+    },
+
+    /**
+     * create - private
+     */
+    _create: function () {
+      // target
+      var target = this;
+
+      // add advanced class
+      $(this.element).addClass(target.options.initClass);
+    },
+
+    /**
+     * dialog - public
+     */
+    dialog: function () {
+      $(this.element).magnificPopup({
+        type: 'inline',
+        midClick: true
+      });
+    },
+
+    /**
+     * external image - public
+     */
+    externalImage: function () {
+      $(this.element).magnificPopup({
+        type: 'image',
+        closeBtnInside: false
+      });
+    },
+
+    /**
+     * external image retina - public
+     */
+    externalImageRetina: function () {
+      $(this.element).magnificPopup({
+        type: 'image',
+        closeBtnInside: false,
+        midClick: true,
+        retina: {
+          ratio: 2
+        }
+      });
+    },
+
+    /**
+     * external images - public
+     */
+    externalImages: function () {
+      $(this.element).magnificPopup({
+        type: 'image',
+        closeBtnInside: false,
+        midClick: true,
+        delegate: 'a',
+        gallery: {
+          enabled: true,
+          navigateByImgClick: true
+        }
+      });
+    },
+
+    /**
+     * inline image - public
+     */
+    inlineImage: function () {
+      $(this.element).magnificPopup({
+        type: 'inline',
+        closeBtnInside: false,
+        midClick: true
+      });
+    },
+
+    /**
+     * inline image - public
+     */
+    iframe: function () {
+      $(this.element).magnificPopup({
+        type: 'iframe',
+        closeBtnInside: false,
+        midClick: true
+      });
+    },
+
+    /**
+     * markup - public
+     */
+    markup: function () {
+      $(this.element).magnificPopup({
+        type: 'inline',
+        closeBtnInside: true,
+        midClick: true
+      });
+    }
+
+  });
+  
+  
+  
+})(jQuery);
+/**
+ * @fileOverview A jQuery UI Widget to make page elements sticky to the screen
+ * @name $.bcc.sticky
+ * @dependencies: jQuery, jQuery UI widget factory
+ */
+
+(function($) {
+	'use strict';
+
+	$.widget('bcc.sticky', {
+
+		options: {
+			stickyClass: 'is-sticky',
+			cloneClass: 'is-clone',
+			borderlessClass: 'is-borderless',
+			invisibleClass: 'is-invisible',
+			visibleClass: 'is-visible'
+		},
+
+		widgetEventPrefix: 'sticky_',
+
+		/**
+		* Constructor
+		*/
+		_create: function() {
+			var self = this;
+			// Create new element for showing/hiding
+			self._new = self.element.clone();
+			self._new
+				.addClass(self.options.cloneClass)
+				.addClass(self.options.invisibleClass)
+				.addClass(self.options.borderlessClass) 
+				.addClass('is-collapsed')
+				.find('.page-contents__list-wrapper').attr('style', 'display:none');
+			self._new.appendTo($('body'));
+
+			// Add collapse classes
+			// Specific to page contents - useful to be able to reuse elsewhere
+			
+			
+
+			//Add sticky class to new element
+			self._new.addClass(self.options.stickyClass);
+
+			self._addGrid(self._new);
+
+			self._timeoutId = null;
+
+			self._trigger('cloned', {}, self._new);
+			self._checkVisibility();
+			self._on(self.window, {
+				'resize': self._resizeHandler, 
+				'orientationchange': self._resizeHandler, 
+				'load': self._resizeHandler, 
+				'scroll': self._checkVisibility 
+			});
+		},
+
+	    /**
+	     * Function to add grid so that fixed element has correct width
+	     *
+	     * @param elem
+	     * @private
+	     */
+	    _addGrid: function(elem) {
+	    	var self = this;
+	    		
+	    	var the_html = 	'';
+	      		the_html += '	<div data-test="test1" class="row-fluid">';
+	      		the_html += '	</div>';
+	      		
+	      		
+			elem.wrapInner(the_html);
+			
+			
+	    },
+
+
+	    /**
+	     * @param delay
+	     * @private
+	     */
+	    _resizeHandler: function (delay) {
+
+	    	var self = this;
+
+	    	if (typeof (delay) === 'undefined') {
+	        	delay = 200;
+	    	}
+
+	    	clearTimeout(self._timeoutId);
+
+	    	// running a throttled resize
+	    	self._timeoutId = 
+	    		setTimeout(function (){
+	        		self._topPosition = self.element.offset().top;
+	        		self._checkVisibility();
+	      		}, delay);
+
+	    },
+
+	    /**
+	     * Check to see if the top of the page is passes the sticky element's top.
+	     * @private
+	     * @fires enter
+	     * @fires exit
+	     */
+	     _checkVisibility: function() {
+      		
+      		var self = this;
+      
+			self._windowTop = $(window).scrollTop();
+
+			if (self._windowTop >= self._topPosition) {
+				//Specific to page contents
+				if(self._new.hasClass(self.options.invisibleClass)) {
+					self._trigger('enter', {}, {
+						elem: self._new
+					});
+				}
+
+				self._new
+					.removeClass(self.options.invisibleClass)
+					.addClass(self.options.visibleClass);
+
+			} else {
+				
+				//Specific to page contents
+				
+				if(self._new.hasClass(self.options.visibleClass)) {
+					self._trigger('exit', {}, {
+						elem: self._new
+					});
+				}
+
+				self._new
+					.removeClass(self.options.visibleClass)
+					.addClass(self.options.invisibleClass);
+			}
+			
+			//Specific to page contents
+			self._bottomPosition = self._topPosition + self.element.height() - self._new.height();
+				
+			// @OPTIMIZE ^^^^ look at how to take the height values out (should they be variables?)
+			if (self._windowTop >= self._bottomPosition) {
+				self._new.removeClass(self.options.borderlessClass);
+			} else {
+				self._new.addClass(self.options.borderlessClass);
+			}
+			
+			
+		},
+
+		/**
+		* Destroy
+		*/
+		_destroy: function() {
+			this._new.remove();
+		}
+	});
+
+})(jQuery);
+
+/**
+ * @fileOverview A jQuery UI Widget to handle form validation
+ * @author Luke Taylor
+ * @name $.bcc.validate
+ * @dependencies: jQuery, jQuery UI widget factory
+ */
+(function($){
+	
+	'use strict';
+	
+	// !! Can we remove?
+	// This is not an elegant solution
+	$(".js--controls-group .js--required").prop('required', true);
+
+  	$.widget('bcc.validate', {
+
+  		// default options
+  		options: {
+  			
+  			// template used for errors
+  			errorMessageTemplate: '<div class="form__item__error">$message$</div>',
+      
+  			// use aria for accessibility
+  			useAria: true,
+  			
+  			// error message element
+  			errorMessageElement: '.form__item__message--error',
+      
+  			// attribute for match validation
+  			matchAttribute: 'data-match',
+      
+  			// element to add error class too
+  			errorElement: '.form__item',
+      
+  			// error class to add to above element
+  			errorClass: 'form__item--error',
+      
+  			// blurred indicator class
+  			blurIndicatorClass: 'form__item--blurred',
+
+  			// Fieldset Class
+  			fieldSetClass: '.form__set',
+
+  			fieldSetErrorClass : 'form__set--error',
+      
+  			// whether or not to validate on key up
+  			keyUpValidation: true
+      
+  			// backend error class
+  			//backendErrorClass: 'form__item--backend-error'
+    	  
+  		},
+
+		/**
+		 * create - private
+		 */
+  		_create: function () {
+
+  			// element and target
+  			var element = $(this.element);
+  			var target = this;
+
+  			// disable html5 form validation
+  			element.attr('novalidate', 'novalidate');
+
+  			// validate all inputs / textareas that are required
+  			this._requiredValidate(element, target);
+	
+  			// validate all inputs / textareas with a pattern attribute
+  			this._patternValidate(element, target);
+	
+  			// validate appropriate selects
+  			this._selectValidate(element, target);
+	
+  			// validate appropriate checkboxes
+  			this._checkboxValidate(element, target);
+	
+  			// validate match elements
+  			this._matchValidate(element, target);
+  		},
+
+
+	    /**
+	     * requiredValidate - private
+	     */
+	    _requiredValidate: function (element, target) {
+
+		    // function to check if valid and style accordingly
+		    function check(e) {
+		    	
+		    	//console.log("checking...");
+		    	if (e.val() !== '') {
+		    		
+		    		// If not empty
+		    		
+		    		e.closest(target.options.errorElement).removeClass(target.options.errorClass);
+		    		//console.log("NOT EMPTY:target.options.errorElement:  "+target.options.errorElement);
+		    		
+		    		// if we are using aria tags to hide content from screenreaders
+		    		if (target.options.useAria) {
+		    			e.closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', true);
+		    		}
+		    		if(e.closest(target.options.fieldSetClass).length && !(e.closest(target.options.fieldSetClass).find("."+target.options.errorClass).length)){
+		    			var fieldset = e.closest(target.options.fieldSetClass);
+		    			fieldset.removeClass(target.options.fieldSetErrorClass);
+		    			fieldset.parent().find('h2').removeClass('invalid');
+		    		}
+		    		
+		    	} else {
+		    		
+		    		// If empty
+		    		
+		    		e.closest(target.options.errorElement).addClass(target.options.errorClass);
+		    		//console.log("EMPTY:target.options.errorElement: "+target.options.errorElement);
+		    		// if we are using aria tags to hide content from screenreaders
+		    		if (target.options.useAria) {
+		    			e.closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', false);
+		    		}
+		    		if(e.closest(target.options.fieldSetClass).length){
+		    			e.closest(target.options.fieldSetClass).addClass(target.options.fieldSetErrorClass);
+		    			e.closest(target.options.fieldSetClass).parent().find('h2').addClass('invalid');
+		    		}
+		    		
+		    	}
+		    }
+		    
+		    // validate appropriate elements on blur
+		    element.find('input[required], textarea[required]').blur(function () {
+	        
+		    	// check
+		    	check($(this));
+	        
+		    	// add class that allows keyup validation
+		    	$(this).addClass(target.options.blurIndicatorClass);
+	        
+		    	// remove backend error class
+		    	//$(this).closest(target.options.errorElement).removeClass(target.options.backendErrorClass);
+		    
+		    });
+	
+		    // validate appropriate elements on keyup
+		    if (target.options.keyUpValidation) {
+	        
+		    	element.find('input[required], textarea[required]').keyup(function () {
+		    	
+			    	if ($(this).is('.' + target.options.blurIndicatorClass)) {
+			    		// check
+			    		check($(this));
+			    	}
+			    	
+			    });
+		    }
+		},
+	
+	    /**
+	     * patternValidate - private
+	     */
+	    _patternValidate: function (element, target) {
+	
+	    	// function to check if valid and style accordingly
+	    	function check(e, re) {
+	    		
+	    		if (re.test(e.val())) {
+	    		
+	    			e.closest(target.options.errorElement).removeClass(target.options.errorClass);
+	    			
+	    			// if we are using aria tags to hide content from screenreaders
+	    			if (target.options.useAria) {
+	    				e.closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', true);
+	    			}
+
+	    			if(e.closest(target.options.fieldSetClass).length && !(e.closest(target.options.fieldSetClass).find("."+target.options.errorClass).length)){
+		    			e.closest(target.options.fieldSetClass).removeClass(target.options.fieldSetErrorClass);
+		    			e.closest(target.options.fieldSetClass).parent().find('h2').removeClass('invalid');
+		    		}
+	    			
+	    		} else {
+	    			
+	    			e.closest(target.options.errorElement).addClass(target.options.errorClass);
+	          
+	    			// if we are using aria tags to hide content from screenreaders
+	    			if (target.options.useAria) {
+	    				e.closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', false);
+	    			}
+
+	    			if(e.closest(target.options.fieldSetClass).length){
+		    			e.closest(target.options.fieldSetClass).addClass(target.options.fieldSetErrorClass);
+		    			e.closest(target.options.fieldSetClass).parent().find('h2').addClass('invalid');
+		    		}
+	    		}
+	    	}
+	
+	    	// validate appropriate elements on blur
+	    	element.find('input[pattern], textarea[pattern]').blur(function () {
+	        
+	    		// get value and create reg ex from pattern
+	    		var re = new RegExp($(this).attr('pattern'));
+	        
+	    		// check
+	    		check($(this), re);
+	        
+	    		// add class that allows keyup validation
+	    		$(this).addClass(target.options.blurIndicatorClass);
+	        
+	    		// remove backend error class
+	    		//$(this).closest(target.options.errorElement).removeClass(target.options.backendErrorClass);
+	    	});
+	
+	    	// validate appropriate elements on keyup
+	    	if (target.options.keyUpValidation) {
+	    		
+	    		element.find('input[pattern], textarea[pattern]').keyup(function () {
+	    		
+		    		if ($(this).is('.' + target.options.blurIndicatorClass)) {
+		    			
+		    			// get value and create reg ex from pattern
+		    			var re = new RegExp($(this).attr('pattern'));
+		    			check($(this), re);
+		    		}
+		    	});
+		    }
+	    },
+	
+	    /**
+	     * selectValidate - private
+	     */
+	    _selectValidate: function (element, target) {
+	
+	    	// remove / show error on appropriate select change
+	    	element.find('.form__item__field--select[required]').change(function () {
+	    		
+	    		// if first option is selected show error and add error styling else hide the error and remove error styling
+	    		if (this.selectedIndex === 0) {
+	    			
+	    			$(this).closest(target.options.errorElement).addClass(target.options.errorClass);
+	          
+	    			// if we are using aria tags to hide content from screenreaders
+	    			if (target.options.useAria) {
+	    				$(this).closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', false);
+	    			}
+	    			
+	    		} else {
+	    			
+	    			$(this).closest(target.options.errorElement).removeClass(target.options.errorClass);
+	          
+	    			// if we are using aria tags to hide content from screenreaders
+	    			if (target.options.useAria) {
+	    				$(this).closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', true);
+	    			}
+	    			
+	    		}
+	    	});
+	
+	    	// perform same action on blur of appropriate select
+	    	element.find('.form__item__field--select').blur(function () { $(this).trigger('change'); });
+	
+	    },
+	
+	    /**
+	     * checkboxValidate - private
+	     */
+	    _checkboxValidate: function (element, target) {
+	
+	    	// remove / show error on appropriate checkbox change
+	    	// .form__item__field--checkbox[required]
+	    	element.find('.form__item__field--checkbox .js--controls--email').change(function () {
+	        
+	    		// error logic
+	    		// Note: Script can only validate one checkbox
+	    		if (!$(this).prop('checked')) {
+	    			
+	    			//console.log("not :checked");
+	          
+	    			$(this).closest(target.options.errorElement).addClass(target.options.errorClass);
+	          
+	    			// if we are using aria tags to hide content from screenreaders
+	    			if (target.options.useAria) {
+	    				$(this).closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', false);
+	    			}
+	    		} else {
+	    			
+	    			//console.log("is :checked");
+	    			
+	    			$(this).closest(target.options.errorElement).removeClass(target.options.errorClass);
+	    			
+	    			// if we are using aria tags to hide content from screenreaders
+	    			if (target.options.useAria) {
+	    				$(this).closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', true);
+	    			}
+	    		}
+	      });
+	
+	      // perform same action on blur of appropriate checkbox
+	      element.find('.form__item__field--checkbox').blur(function () { $(this).trigger('change'); });
+	   },
+	
+	    /**
+	     * matchValidate - private
+	     */
+	    _matchValidate: function (element, target) {
+	
+		    // validate appropriate match element
+	    	element.find('input[' + target.options.matchAttribute + '], textarea[' + target.options.matchAttribute + ']').blur(function () {
+	        
+	    		// define the element to match
+	    		var elementToMatch = '#' + $(this).attr(target.options.matchAttribute);
+	
+	    		// error logic
+	    		if ($(this).val() !== $(elementToMatch).val()) {
+				   
+	    			$(this).closest(target.options.errorElement).addClass(target.options.errorClass);
+				   
+	    			// if we are using aria tags to hide content from screenreaders
+	    			if (target.options.useAria) {
+	    				$(this).closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', false);
+	    			}
+	    			if($(this).closest(target.options.fieldSetClass).length){
+		    			$(this).closest(target.options.fieldSetClass).addClass(target.options.fieldSetErrorClass);
+		    			$(this).closest(target.options.fieldSetClass).parent().find('h2').addClass('invalid');
+		    		}
+				   
+	    		} else {
+				   
+	    			$(this).closest(target.options.errorElement).removeClass(target.options.errorClass);
+				   
+	    			// if we are using aria tags to hide content from screenreaders
+	    			if (target.options.useAria) {
+	    				$(this).closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', true);
+	    			}
+
+	    			if($(this).closest(target.options.fieldSetClass).length && !($(this).closest(target.options.fieldSetClass).find("."+target.options.errorClass).length)){
+		    			
+		    			$(this).closest(target.options.fieldSetClass).removeClass(target.options.fieldSetErrorClass);
+		    			$(this).closest(target.options.fieldSetClass).parent().find('h2').removeClass('invalid');
+		    		}
+	    		}
+			   
+	    		// add class that allows keyup validation
+	    		$(this).addClass(target.options.blurIndicatorClass);
+	        
+	    		// remove backend error class
+	    		//$(this).closest(target.options.errorElement).removeClass(target.options.backendErrorClass);
+	    	});
+	
+	    	// validate appropriate elements on keyup
+	    	if (target.options.keyUpValidation) {
+	    		
+	    		element.find('input[' + target.options.matchAttribute + '], textarea[' + target.options.matchAttribute + ']').keyup(function () {
+	          
+	    			//console.log("A");
+	    			
+	    			if ($(this).is('.' + target.options.blurIndicatorClass)) {
+	    				
+	    				// define the element to match
+	    				var elementToMatch = '#' + $(this).attr(target.options.matchAttribute);
+	            
+	    				// error logic
+	    				if ($(this).val() !== $(elementToMatch).val()) {
+	    					
+	    					//console.log("B");
+	    					
+	    					$(this).closest(target.options.errorElement).addClass(target.options.errorClass);
+	    					
+	    					// if we are using aria tags to hide content from screenreaders
+	    					if (target.options.useAria) {
+	    						$(this).closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', false);
+	    					}
+	    					
+	    				} else {
+	              
+	    					$(this).closest(target.options.errorElement).removeClass(target.options.errorClass);
+	    					
+	    					// if we are using aria tags to hide content from screenreaders
+	    					if (target.options.useAria) {
+	    						$(this).closest(target.options.errorElement).find(target.options.errorMessageElement).attr('aria-hidden', true);
+	    					}
+	    					
+	    				}
+	    				
+	    			}
+	    		});
+	    	}
+    	}
+  	});
+})(jQuery);
+/*!
+ * jQuery Form Plugin
+ * version: 3.51.0-2014.06.20
+ * Requires jQuery v1.5 or later
+ * Copyright (c) 2014 M. Alsup
+ * Examples and documentation at: http://malsup.com/jquery/form/
+ * Project repository: https://github.com/malsup/form
+ * Dual licensed under the MIT and GPL licenses.
+ * https://github.com/malsup/form#copyright-and-license
+ */
+/*global ActiveXObject */
+
+// AMD support
+(function (factory) {
+    "use strict";
+    if (typeof define === 'function' && define.amd) {
+        // using AMD; register as anon module
+        define(['jquery'], factory);
+    } else {
+        // no AMD; invoke directly
+        factory( (typeof(jQuery) != 'undefined') ? jQuery : window.Zepto );
+    }
+}
+
+(function($) {
+"use strict";
+
+/*
+    Usage Note:
+    -----------
+    Do not use both ajaxSubmit and ajaxForm on the same form.  These
+    functions are mutually exclusive.  Use ajaxSubmit if you want
+    to bind your own submit handler to the form.  For example,
+
+    $(document).ready(function() {
+        $('#myForm').on('submit', function(e) {
+            e.preventDefault(); // <-- important
+            $(this).ajaxSubmit({
+                target: '#output'
+            });
+        });
+    });
+
+    Use ajaxForm when you want the plugin to manage all the event binding
+    for you.  For example,
+
+    $(document).ready(function() {
+        $('#myForm').ajaxForm({
+            target: '#output'
+        });
+    });
+
+    You can also use ajaxForm with delegation (requires jQuery v1.7+), so the
+    form does not have to exist when you invoke ajaxForm:
+
+    $('#myForm').ajaxForm({
+        delegation: true,
+        target: '#output'
+    });
+
+    When using ajaxForm, the ajaxSubmit function will be invoked for you
+    at the appropriate time.
+*/
+
+/**
+ * Feature detection
+ */
+var feature = {};
+feature.fileapi = $("<input type='file'/>").get(0).files !== undefined;
+feature.formdata = window.FormData !== undefined;
+
+var hasProp = !!$.fn.prop;
+
+// attr2 uses prop when it can but checks the return type for
+// an expected string.  this accounts for the case where a form 
+// contains inputs with names like "action" or "method"; in those
+// cases "prop" returns the element
+$.fn.attr2 = function() {
+    if ( ! hasProp ) {
+        return this.attr.apply(this, arguments);
+    }
+    var val = this.prop.apply(this, arguments);
+    if ( ( val && val.jquery ) || typeof val === 'string' ) {
+        return val;
+    }
+    return this.attr.apply(this, arguments);
+};
+
+/**
+ * ajaxSubmit() provides a mechanism for immediately submitting
+ * an HTML form using AJAX.
+ */
+$.fn.ajaxSubmit = function(options) {
+    /*jshint scripturl:true */
+
+    // fast fail if nothing selected (http://dev.jquery.com/ticket/2752)
+    if (!this.length) {
+        log('ajaxSubmit: skipping submit process - no element selected');
+        return this;
+    }
+
+    var method, action, url, $form = this;
+
+    if (typeof options == 'function') {
+        options = { success: options };
+    }
+    else if ( options === undefined ) {
+        options = {};
+    }
+
+    method = options.type || this.attr2('method');
+    action = options.url  || this.attr2('action');
+
+    url = (typeof action === 'string') ? $.trim(action) : '';
+    url = url || window.location.href || '';
+    if (url) {
+        // clean url (don't include hash vaue)
+        url = (url.match(/^([^#]+)/)||[])[1];
+    }
+
+    options = $.extend(true, {
+        url:  url,
+        success: $.ajaxSettings.success,
+        type: method || $.ajaxSettings.type,
+        iframeSrc: /^https/i.test(window.location.href || '') ? 'javascript:false' : 'about:blank'
+    }, options);
+
+    // hook for manipulating the form data before it is extracted;
+    // convenient for use with rich editors like tinyMCE or FCKEditor
+    var veto = {};
+    this.trigger('form-pre-serialize', [this, options, veto]);
+    if (veto.veto) {
+        log('ajaxSubmit: submit vetoed via form-pre-serialize trigger');
+        return this;
+    }
+
+    // provide opportunity to alter form data before it is serialized
+    if (options.beforeSerialize && options.beforeSerialize(this, options) === false) {
+        log('ajaxSubmit: submit aborted via beforeSerialize callback');
+        return this;
+    }
+
+    var traditional = options.traditional;
+    if ( traditional === undefined ) {
+        traditional = $.ajaxSettings.traditional;
+    }
+
+    var elements = [];
+    var qx, a = this.formToArray(options.semantic, elements);
+    if (options.data) {
+        options.extraData = options.data;
+        qx = $.param(options.data, traditional);
+    }
+
+    // give pre-submit callback an opportunity to abort the submit
+    if (options.beforeSubmit && options.beforeSubmit(a, this, options) === false) {
+        log('ajaxSubmit: submit aborted via beforeSubmit callback');
+        return this;
+    }
+
+    // fire vetoable 'validate' event
+    this.trigger('form-submit-validate', [a, this, options, veto]);
+    if (veto.veto) {
+        log('ajaxSubmit: submit vetoed via form-submit-validate trigger');
+        return this;
+    }
+
+    var q = $.param(a, traditional);
+    if (qx) {
+        q = ( q ? (q + '&' + qx) : qx );
+    }
+    if (options.type.toUpperCase() == 'GET') {
+        options.url += (options.url.indexOf('?') >= 0 ? '&' : '?') + q;
+        options.data = null;  // data is null for 'get'
+    }
+    else {
+        options.data = q; // data is the query string for 'post'
+    }
+
+    var callbacks = [];
+    if (options.resetForm) {
+        callbacks.push(function() { $form.resetForm(); });
+    }
+    if (options.clearForm) {
+        callbacks.push(function() { $form.clearForm(options.includeHidden); });
+    }
+
+    // perform a load on the target only if dataType is not provided
+    if (!options.dataType && options.target) {
+        var oldSuccess = options.success || function(){};
+        callbacks.push(function(data) {
+            var fn = options.replaceTarget ? 'replaceWith' : 'html';
+            $(options.target)[fn](data).each(oldSuccess, arguments);
+        });
+    }
+    else if (options.success) {
+        callbacks.push(options.success);
+    }
+
+    options.success = function(data, status, xhr) { // jQuery 1.4+ passes xhr as 3rd arg
+        var context = options.context || this ;    // jQuery 1.4+ supports scope context
+        for (var i=0, max=callbacks.length; i < max; i++) {
+            callbacks[i].apply(context, [data, status, xhr || $form, $form]);
+        }
+    };
+
+    if (options.error) {
+        var oldError = options.error;
+        options.error = function(xhr, status, error) {
+            var context = options.context || this;
+            oldError.apply(context, [xhr, status, error, $form]);
+        };
+    }
+
+     if (options.complete) {
+        var oldComplete = options.complete;
+        options.complete = function(xhr, status) {
+            var context = options.context || this;
+            oldComplete.apply(context, [xhr, status, $form]);
+        };
+    }
+
+    // are there files to upload?
+
+    // [value] (issue #113), also see comment:
+    // https://github.com/malsup/form/commit/588306aedba1de01388032d5f42a60159eea9228#commitcomment-2180219
+    var fileInputs = $('input[type=file]:enabled', this).filter(function() { return $(this).val() !== ''; });
+
+    var hasFileInputs = fileInputs.length > 0;
+    var mp = 'multipart/form-data';
+    var multipart = ($form.attr('enctype') == mp || $form.attr('encoding') == mp);
+
+    var fileAPI = feature.fileapi && feature.formdata;
+    log("fileAPI :" + fileAPI);
+    var shouldUseFrame = (hasFileInputs || multipart) && !fileAPI;
+
+    var jqxhr;
+
+    // options.iframe allows user to force iframe mode
+    // 06-NOV-09: now defaulting to iframe mode if file input is detected
+    if (options.iframe !== false && (options.iframe || shouldUseFrame)) {
+        // hack to fix Safari hang (thanks to Tim Molendijk for this)
+        // see:  http://groups.google.com/group/jquery-dev/browse_thread/thread/36395b7ab510dd5d
+        if (options.closeKeepAlive) {
+            $.get(options.closeKeepAlive, function() {
+                jqxhr = fileUploadIframe(a);
+            });
+        }
+        else {
+            jqxhr = fileUploadIframe(a);
+        }
+    }
+    else if ((hasFileInputs || multipart) && fileAPI) {
+        jqxhr = fileUploadXhr(a);
+    }
+    else {
+        jqxhr = $.ajax(options);
+    }
+
+    $form.removeData('jqxhr').data('jqxhr', jqxhr);
+
+    // clear element array
+    for (var k=0; k < elements.length; k++) {
+        elements[k] = null;
+    }
+
+    // fire 'notify' event
+    this.trigger('form-submit-notify', [this, options]);
+    return this;
+
+    // utility fn for deep serialization
+    function deepSerialize(extraData){
+        var serialized = $.param(extraData, options.traditional).split('&');
+        var len = serialized.length;
+        var result = [];
+        var i, part;
+        for (i=0; i < len; i++) {
+            // #252; undo param space replacement
+            serialized[i] = serialized[i].replace(/\+/g,' ');
+            part = serialized[i].split('=');
+            // #278; use array instead of object storage, favoring array serializations
+            result.push([decodeURIComponent(part[0]), decodeURIComponent(part[1])]);
+        }
+        return result;
+    }
+
+     // XMLHttpRequest Level 2 file uploads (big hat tip to francois2metz)
+    function fileUploadXhr(a) {
+        var formdata = new FormData();
+
+        for (var i=0; i < a.length; i++) {
+            formdata.append(a[i].name, a[i].value);
+        }
+
+        if (options.extraData) {
+            var serializedData = deepSerialize(options.extraData);
+            for (i=0; i < serializedData.length; i++) {
+                if (serializedData[i]) {
+                    formdata.append(serializedData[i][0], serializedData[i][1]);
+                }
+            }
+        }
+
+        options.data = null;
+
+        var s = $.extend(true, {}, $.ajaxSettings, options, {
+            contentType: false,
+            processData: false,
+            cache: false,
+            type: method || 'POST'
+        });
+
+        if (options.uploadProgress) {
+            // workaround because jqXHR does not expose upload property
+            s.xhr = function() {
+                var xhr = $.ajaxSettings.xhr();
+                if (xhr.upload) {
+                    xhr.upload.addEventListener('progress', function(event) {
+                        var percent = 0;
+                        var position = event.loaded || event.position; /*event.position is deprecated*/
+                        var total = event.total;
+                        if (event.lengthComputable) {
+                            percent = Math.ceil(position / total * 100);
+                        }
+                        options.uploadProgress(event, position, total, percent);
+                    }, false);
+                }
+                return xhr;
+            };
+        }
+
+        s.data = null;
+        var beforeSend = s.beforeSend;
+        s.beforeSend = function(xhr, o) {
+            //Send FormData() provided by user
+            if (options.formData) {
+                o.data = options.formData;
+            }
+            else {
+                o.data = formdata;
+            }
+            if(beforeSend) {
+                beforeSend.call(this, xhr, o);
+            }
+        };
+        return $.ajax(s);
+    }
+
+    // private function for handling file uploads (hat tip to YAHOO!)
+    function fileUploadIframe(a) {
+        var form = $form[0], el, i, s, g, id, $io, io, xhr, sub, n, timedOut, timeoutHandle;
+        var deferred = $.Deferred();
+
+        // #341
+        deferred.abort = function(status) {
+            xhr.abort(status);
+        };
+
+        if (a) {
+            // ensure that every serialized input is still enabled
+            for (i=0; i < elements.length; i++) {
+                el = $(elements[i]);
+                if ( hasProp ) {
+                    el.prop('disabled', false);
+                }
+                else {
+                    el.removeAttr('disabled');
+                }
+            }
+        }
+
+        s = $.extend(true, {}, $.ajaxSettings, options);
+        s.context = s.context || s;
+        id = 'jqFormIO' + (new Date().getTime());
+        if (s.iframeTarget) {
+            $io = $(s.iframeTarget);
+            n = $io.attr2('name');
+            if (!n) {
+                $io.attr2('name', id);
+            }
+            else {
+                id = n;
+            }
+        }
+        else {
+            $io = $('<iframe name="' + id + '" src="'+ s.iframeSrc +'" />');
+            $io.css({ position: 'absolute', top: '-1000px', left: '-1000px' });
+        }
+        io = $io[0];
+
+
+        xhr = { // mock object
+            aborted: 0,
+            responseText: null,
+            responseXML: null,
+            status: 0,
+            statusText: 'n/a',
+            getAllResponseHeaders: function() {},
+            getResponseHeader: function() {},
+            setRequestHeader: function() {},
+            abort: function(status) {
+                var e = (status === 'timeout' ? 'timeout' : 'aborted');
+                log('aborting upload... ' + e);
+                this.aborted = 1;
+
+                try { // #214, #257
+                    if (io.contentWindow.document.execCommand) {
+                        io.contentWindow.document.execCommand('Stop');
+                    }
+                }
+                catch(ignore) {}
+
+                $io.attr('src', s.iframeSrc); // abort op in progress
+                xhr.error = e;
+                if (s.error) {
+                    s.error.call(s.context, xhr, e, status);
+                }
+                if (g) {
+                    $.event.trigger("ajaxError", [xhr, s, e]);
+                }
+                if (s.complete) {
+                    s.complete.call(s.context, xhr, e);
+                }
+            }
+        };
+
+        g = s.global;
+        // trigger ajax global events so that activity/block indicators work like normal
+        if (g && 0 === $.active++) {
+            $.event.trigger("ajaxStart");
+        }
+        if (g) {
+            $.event.trigger("ajaxSend", [xhr, s]);
+        }
+
+        if (s.beforeSend && s.beforeSend.call(s.context, xhr, s) === false) {
+            if (s.global) {
+                $.active--;
+            }
+            deferred.reject();
+            return deferred;
+        }
+        if (xhr.aborted) {
+            deferred.reject();
+            return deferred;
+        }
+
+        // add submitting element to data if we know it
+        sub = form.clk;
+        if (sub) {
+            n = sub.name;
+            if (n && !sub.disabled) {
+                s.extraData = s.extraData || {};
+                s.extraData[n] = sub.value;
+                if (sub.type == "image") {
+                    s.extraData[n+'.x'] = form.clk_x;
+                    s.extraData[n+'.y'] = form.clk_y;
+                }
+            }
+        }
+
+        var CLIENT_TIMEOUT_ABORT = 1;
+        var SERVER_ABORT = 2;
+                
+        function getDoc(frame) {
+            /* it looks like contentWindow or contentDocument do not
+             * carry the protocol property in ie8, when running under ssl
+             * frame.document is the only valid response document, since
+             * the protocol is know but not on the other two objects. strange?
+             * "Same origin policy" http://en.wikipedia.org/wiki/Same_origin_policy
+             */
+            
+            var doc = null;
+            
+            // IE8 cascading access check
+            try {
+                if (frame.contentWindow) {
+                    doc = frame.contentWindow.document;
+                }
+            } catch(err) {
+                // IE8 access denied under ssl & missing protocol
+                log('cannot get iframe.contentWindow document: ' + err);
+            }
+
+            if (doc) { // successful getting content
+                return doc;
+            }
+
+            try { // simply checking may throw in ie8 under ssl or mismatched protocol
+                doc = frame.contentDocument ? frame.contentDocument : frame.document;
+            } catch(err) {
+                // last attempt
+                log('cannot get iframe.contentDocument: ' + err);
+                doc = frame.document;
+            }
+            return doc;
+        }
+
+        // Rails CSRF hack (thanks to Yvan Barthelemy)
+        var csrf_token = $('meta[name=csrf-token]').attr('content');
+        var csrf_param = $('meta[name=csrf-param]').attr('content');
+        if (csrf_param && csrf_token) {
+            s.extraData = s.extraData || {};
+            s.extraData[csrf_param] = csrf_token;
+        }
+
+        // take a breath so that pending repaints get some cpu time before the upload starts
+        function doSubmit() {
+            // make sure form attrs are set
+            var t = $form.attr2('target'), 
+                a = $form.attr2('action'), 
+                mp = 'multipart/form-data',
+                et = $form.attr('enctype') || $form.attr('encoding') || mp;
+
+            // update form attrs in IE friendly way
+            form.setAttribute('target',id);
+            if (!method || /post/i.test(method) ) {
+                form.setAttribute('method', 'POST');
+            }
+            if (a != s.url) {
+                form.setAttribute('action', s.url);
+            }
+
+            // ie borks in some cases when setting encoding
+            if (! s.skipEncodingOverride && (!method || /post/i.test(method))) {
+                $form.attr({
+                    encoding: 'multipart/form-data',
+                    enctype:  'multipart/form-data'
+                });
+            }
+
+            // support timout
+            if (s.timeout) {
+                timeoutHandle = setTimeout(function() { timedOut = true; cb(CLIENT_TIMEOUT_ABORT); }, s.timeout);
+            }
+
+            // look for server aborts
+            function checkState() {
+                try {
+                    var state = getDoc(io).readyState;
+                    log('state = ' + state);
+                    if (state && state.toLowerCase() == 'uninitialized') {
+                        setTimeout(checkState,50);
+                    }
+                }
+                catch(e) {
+                    log('Server abort: ' , e, ' (', e.name, ')');
+                    cb(SERVER_ABORT);
+                    if (timeoutHandle) {
+                        clearTimeout(timeoutHandle);
+                    }
+                    timeoutHandle = undefined;
+                }
+            }
+
+            // add "extra" data to form if provided in options
+            var extraInputs = [];
+            try {
+                if (s.extraData) {
+                    for (var n in s.extraData) {
+                        if (s.extraData.hasOwnProperty(n)) {
+                           // if using the $.param format that allows for multiple values with the same name
+                           if($.isPlainObject(s.extraData[n]) && s.extraData[n].hasOwnProperty('name') && s.extraData[n].hasOwnProperty('value')) {
+                               extraInputs.push(
+                               $('<input type="hidden" name="'+s.extraData[n].name+'">').val(s.extraData[n].value)
+                                   .appendTo(form)[0]);
+                           } else {
+                               extraInputs.push(
+                               $('<input type="hidden" name="'+n+'">').val(s.extraData[n])
+                                   .appendTo(form)[0]);
+                           }
+                        }
+                    }
+                }
+
+                if (!s.iframeTarget) {
+                    // add iframe to doc and submit the form
+                    $io.appendTo('body');
+                }
+                if (io.attachEvent) {
+                    io.attachEvent('onload', cb);
+                }
+                else {
+                    io.addEventListener('load', cb, false);
+                }
+                setTimeout(checkState,15);
+
+                try {
+                    form.submit();
+                } catch(err) {
+                    // just in case form has element with name/id of 'submit'
+                    var submitFn = document.createElement('form').submit;
+                    submitFn.apply(form);
+                }
+            }
+            finally {
+                // reset attrs and remove "extra" input elements
+                form.setAttribute('action',a);
+                form.setAttribute('enctype', et); // #380
+                if(t) {
+                    form.setAttribute('target', t);
+                } else {
+                    $form.removeAttr('target');
+                }
+                $(extraInputs).remove();
+            }
+        }
+
+        if (s.forceSync) {
+            doSubmit();
+        }
+        else {
+            setTimeout(doSubmit, 10); // this lets dom updates render
+        }
+
+        var data, doc, domCheckCount = 50, callbackProcessed;
+
+        function cb(e) {
+            if (xhr.aborted || callbackProcessed) {
+                return;
+            }
+            
+            doc = getDoc(io);
+            if(!doc) {
+                log('cannot access response document');
+                e = SERVER_ABORT;
+            }
+            if (e === CLIENT_TIMEOUT_ABORT && xhr) {
+                xhr.abort('timeout');
+                deferred.reject(xhr, 'timeout');
+                return;
+            }
+            else if (e == SERVER_ABORT && xhr) {
+                xhr.abort('server abort');
+                deferred.reject(xhr, 'error', 'server abort');
+                return;
+            }
+
+            if (!doc || doc.location.href == s.iframeSrc) {
+                // response not received yet
+                if (!timedOut) {
+                    return;
+                }
+            }
+            if (io.detachEvent) {
+                io.detachEvent('onload', cb);
+            }
+            else {
+                io.removeEventListener('load', cb, false);
+            }
+
+            var status = 'success', errMsg;
+            try {
+                if (timedOut) {
+                    throw 'timeout';
+                }
+
+                var isXml = s.dataType == 'xml' || doc.XMLDocument || $.isXMLDoc(doc);
+                log('isXml='+isXml);
+                if (!isXml && window.opera && (doc.body === null || !doc.body.innerHTML)) {
+                    if (--domCheckCount) {
+                        // in some browsers (Opera) the iframe DOM is not always traversable when
+                        // the onload callback fires, so we loop a bit to accommodate
+                        log('requeing onLoad callback, DOM not available');
+                        setTimeout(cb, 250);
+                        return;
+                    }
+                    // let this fall through because server response could be an empty document
+                    //log('Could not access iframe DOM after mutiple tries.');
+                    //throw 'DOMException: not available';
+                }
+
+                //log('response detected');
+                var docRoot = doc.body ? doc.body : doc.documentElement;
+                xhr.responseText = docRoot ? docRoot.innerHTML : null;
+                xhr.responseXML = doc.XMLDocument ? doc.XMLDocument : doc;
+                if (isXml) {
+                    s.dataType = 'xml';
+                }
+                xhr.getResponseHeader = function(header){
+                    var headers = {'content-type': s.dataType};
+                    return headers[header.toLowerCase()];
+                };
+                // support for XHR 'status' & 'statusText' emulation :
+                if (docRoot) {
+                    xhr.status = Number( docRoot.getAttribute('status') ) || xhr.status;
+                    xhr.statusText = docRoot.getAttribute('statusText') || xhr.statusText;
+                }
+
+                var dt = (s.dataType || '').toLowerCase();
+                var scr = /(json|script|text)/.test(dt);
+                if (scr || s.textarea) {
+                    // see if user embedded response in textarea
+                    var ta = doc.getElementsByTagName('textarea')[0];
+                    if (ta) {
+                        xhr.responseText = ta.value;
+                        // support for XHR 'status' & 'statusText' emulation :
+                        xhr.status = Number( ta.getAttribute('status') ) || xhr.status;
+                        xhr.statusText = ta.getAttribute('statusText') || xhr.statusText;
+                    }
+                    else if (scr) {
+                        // account for browsers injecting pre around json response
+                        var pre = doc.getElementsByTagName('pre')[0];
+                        var b = doc.getElementsByTagName('body')[0];
+                        if (pre) {
+                            xhr.responseText = pre.textContent ? pre.textContent : pre.innerText;
+                        }
+                        else if (b) {
+                            xhr.responseText = b.textContent ? b.textContent : b.innerText;
+                        }
+                    }
+                }
+                else if (dt == 'xml' && !xhr.responseXML && xhr.responseText) {
+                    xhr.responseXML = toXml(xhr.responseText);
+                }
+
+                try {
+                    data = httpData(xhr, dt, s);
+                }
+                catch (err) {
+                    status = 'parsererror';
+                    xhr.error = errMsg = (err || status);
+                }
+            }
+            catch (err) {
+                log('error caught: ',err);
+                status = 'error';
+                xhr.error = errMsg = (err || status);
+            }
+
+            if (xhr.aborted) {
+                log('upload aborted');
+                status = null;
+            }
+
+            if (xhr.status) { // we've set xhr.status
+                status = (xhr.status >= 200 && xhr.status < 300 || xhr.status === 304) ? 'success' : 'error';
+            }
+
+            // ordering of these callbacks/triggers is odd, but that's how $.ajax does it
+            if (status === 'success') {
+                if (s.success) {
+                    s.success.call(s.context, data, 'success', xhr);
+                }
+                deferred.resolve(xhr.responseText, 'success', xhr);
+                if (g) {
+                    $.event.trigger("ajaxSuccess", [xhr, s]);
+                }
+            }
+            else if (status) {
+                if (errMsg === undefined) {
+                    errMsg = xhr.statusText;
+                }
+                if (s.error) {
+                    s.error.call(s.context, xhr, status, errMsg);
+                }
+                deferred.reject(xhr, 'error', errMsg);
+                if (g) {
+                    $.event.trigger("ajaxError", [xhr, s, errMsg]);
+                }
+            }
+
+            if (g) {
+                $.event.trigger("ajaxComplete", [xhr, s]);
+            }
+
+            if (g && ! --$.active) {
+                $.event.trigger("ajaxStop");
+            }
+
+            if (s.complete) {
+                s.complete.call(s.context, xhr, status);
+            }
+
+            callbackProcessed = true;
+            if (s.timeout) {
+                clearTimeout(timeoutHandle);
+            }
+
+            // clean up
+            setTimeout(function() {
+                if (!s.iframeTarget) {
+                    $io.remove();
+                }
+                else { //adding else to clean up existing iframe response.
+                    $io.attr('src', s.iframeSrc);
+                }
+                xhr.responseXML = null;
+            }, 100);
+        }
+
+        var toXml = $.parseXML || function(s, doc) { // use parseXML if available (jQuery 1.5+)
+            if (window.ActiveXObject) {
+                doc = new ActiveXObject('Microsoft.XMLDOM');
+                doc.async = 'false';
+                doc.loadXML(s);
+            }
+            else {
+                doc = (new DOMParser()).parseFromString(s, 'text/xml');
+            }
+            return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
+        };
+        var parseJSON = $.parseJSON || function(s) {
+            /*jslint evil:true */
+            return window['eval']('(' + s + ')');
+        };
+
+        var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
+
+            var ct = xhr.getResponseHeader('content-type') || '',
+                xml = type === 'xml' || !type && ct.indexOf('xml') >= 0,
+                data = xml ? xhr.responseXML : xhr.responseText;
+
+            if (xml && data.documentElement.nodeName === 'parsererror') {
+                if ($.error) {
+                    $.error('parsererror');
+                }
+            }
+            if (s && s.dataFilter) {
+                data = s.dataFilter(data, type);
+            }
+            if (typeof data === 'string') {
+                if (type === 'json' || !type && ct.indexOf('json') >= 0) {
+                    data = parseJSON(data);
+                } else if (type === "script" || !type && ct.indexOf("javascript") >= 0) {
+                    $.globalEval(data);
+                }
+            }
+            return data;
+        };
+
+        return deferred;
+    }
+};
+
+/**
+ * ajaxForm() provides a mechanism for fully automating form submission.
+ *
+ * The advantages of using this method instead of ajaxSubmit() are:
+ *
+ * 1: This method will include coordinates for <input type="image" /> elements (if the element
+ *    is used to submit the form).
+ * 2. This method will include the submit element's name/value data (for the element that was
+ *    used to submit the form).
+ * 3. This method binds the submit() method to the form for you.
+ *
+ * The options argument for ajaxForm works exactly as it does for ajaxSubmit.  ajaxForm merely
+ * passes the options argument along after properly binding events for submit elements and
+ * the form itself.
+ */
+$.fn.ajaxForm = function(options) {
+    options = options || {};
+    options.delegation = options.delegation && $.isFunction($.fn.on);
+
+    // in jQuery 1.3+ we can fix mistakes with the ready state
+    if (!options.delegation && this.length === 0) {
+        var o = { s: this.selector, c: this.context };
+        if (!$.isReady && o.s) {
+            log('DOM not ready, queuing ajaxForm');
+            $(function() {
+                $(o.s,o.c).ajaxForm(options);
+            });
+            return this;
+        }
+        // is your DOM ready?  http://docs.jquery.com/Tutorials:Introducing_$(document).ready()
+        log('terminating; zero elements found by selector' + ($.isReady ? '' : ' (DOM not ready)'));
+        return this;
+    }
+
+    if ( options.delegation ) {
+        $(document)
+            .off('submit.form-plugin', this.selector, doAjaxSubmit)
+            .off('click.form-plugin', this.selector, captureSubmittingElement)
+            .on('submit.form-plugin', this.selector, options, doAjaxSubmit)
+            .on('click.form-plugin', this.selector, options, captureSubmittingElement);
+        return this;
+    }
+
+    return this.ajaxFormUnbind()
+        .bind('submit.form-plugin', options, doAjaxSubmit)
+        .bind('click.form-plugin', options, captureSubmittingElement);
+};
+
+// private event handlers
+function doAjaxSubmit(e) {
+    /*jshint validthis:true */
+    var options = e.data;
+    if (!e.isDefaultPrevented()) { // if event has been canceled, don't proceed
+        e.preventDefault();
+        $(e.target).ajaxSubmit(options); // #365
+    }
+}
+
+function captureSubmittingElement(e) {
+    /*jshint validthis:true */
+    var target = e.target;
+    var $el = $(target);
+    if (!($el.is("[type=submit],[type=image]"))) {
+        // is this a child element of the submit el?  (ex: a span within a button)
+        var t = $el.closest('[type=submit]');
+        if (t.length === 0) {
+            return;
+        }
+        target = t[0];
+    }
+    var form = this;
+    form.clk = target;
+    if (target.type == 'image') {
+        if (e.offsetX !== undefined) {
+            form.clk_x = e.offsetX;
+            form.clk_y = e.offsetY;
+        } else if (typeof $.fn.offset == 'function') {
+            var offset = $el.offset();
+            form.clk_x = e.pageX - offset.left;
+            form.clk_y = e.pageY - offset.top;
+        } else {
+            form.clk_x = e.pageX - target.offsetLeft;
+            form.clk_y = e.pageY - target.offsetTop;
+        }
+    }
+    // clear form vars
+    setTimeout(function() { form.clk = form.clk_x = form.clk_y = null; }, 100);
+}
+
+
+// ajaxFormUnbind unbinds the event handlers that were bound by ajaxForm
+$.fn.ajaxFormUnbind = function() {
+    return this.unbind('submit.form-plugin click.form-plugin');
+};
+
+/**
+ * formToArray() gathers form element data into an array of objects that can
+ * be passed to any of the following ajax functions: $.get, $.post, or load.
+ * Each object in the array has both a 'name' and 'value' property.  An example of
+ * an array for a simple login form might be:
+ *
+ * [ { name: 'username', value: 'jresig' }, { name: 'password', value: 'secret' } ]
+ *
+ * It is this array that is passed to pre-submit callback functions provided to the
+ * ajaxSubmit() and ajaxForm() methods.
+ */
+$.fn.formToArray = function(semantic, elements) {
+    var a = [];
+    if (this.length === 0) {
+        return a;
+    }
+
+    var form = this[0];
+    var formId = this.attr('id');
+    var els = semantic ? form.getElementsByTagName('*') : form.elements;
+    var els2;
+
+    if (els && !/MSIE [678]/.test(navigator.userAgent)) { // #390
+        els = $(els).get();  // convert to standard array
+    }
+
+    // #386; account for inputs outside the form which use the 'form' attribute
+    if ( formId ) {
+        els2 = $(':input[form="' + formId + '"]').get(); // hat tip @thet
+        if ( els2.length ) {
+            els = (els || []).concat(els2);
+        }
+    }
+
+    if (!els || !els.length) {
+        return a;
+    }
+
+    var i,j,n,v,el,max,jmax;
+    for(i=0, max=els.length; i < max; i++) {
+        el = els[i];
+        n = el.name;
+        if (!n || el.disabled) {
+            continue;
+        }
+
+        if (semantic && form.clk && el.type == "image") {
+            // handle image inputs on the fly when semantic == true
+            if(form.clk == el) {
+                a.push({name: n, value: $(el).val(), type: el.type });
+                a.push({name: n+'.x', value: form.clk_x}, {name: n+'.y', value: form.clk_y});
+            }
+            continue;
+        }
+
+        v = $.fieldValue(el, true);
+        if (v && v.constructor == Array) {
+            if (elements) {
+                elements.push(el);
+            }
+            for(j=0, jmax=v.length; j < jmax; j++) {
+                a.push({name: n, value: v[j]});
+            }
+        }
+        else if (feature.fileapi && el.type == 'file') {
+            if (elements) {
+                elements.push(el);
+            }
+            var files = el.files;
+            if (files.length) {
+                for (j=0; j < files.length; j++) {
+                    a.push({name: n, value: files[j], type: el.type});
+                }
+            }
+            else {
+                // #180
+                a.push({ name: n, value: '', type: el.type });
+            }
+        }
+        else if (v !== null && typeof v != 'undefined') {
+            if (elements) {
+                elements.push(el);
+            }
+            a.push({name: n, value: v, type: el.type, required: el.required});
+        }
+    }
+
+    if (!semantic && form.clk) {
+        // input type=='image' are not found in elements array! handle it here
+        var $input = $(form.clk), input = $input[0];
+        n = input.name;
+        if (n && !input.disabled && input.type == 'image') {
+            a.push({name: n, value: $input.val()});
+            a.push({name: n+'.x', value: form.clk_x}, {name: n+'.y', value: form.clk_y});
+        }
+    }
+    return a;
+};
+
+/**
+ * Serializes form data into a 'submittable' string. This method will return a string
+ * in the format: name1=value1&amp;name2=value2
+ */
+$.fn.formSerialize = function(semantic) {
+    //hand off to jQuery.param for proper encoding
+    return $.param(this.formToArray(semantic));
+};
+
+/**
+ * Serializes all field elements in the jQuery object into a query string.
+ * This method will return a string in the format: name1=value1&amp;name2=value2
+ */
+$.fn.fieldSerialize = function(successful) {
+    var a = [];
+    this.each(function() {
+        var n = this.name;
+        if (!n) {
+            return;
+        }
+        var v = $.fieldValue(this, successful);
+        if (v && v.constructor == Array) {
+            for (var i=0,max=v.length; i < max; i++) {
+                a.push({name: n, value: v[i]});
+            }
+        }
+        else if (v !== null && typeof v != 'undefined') {
+            a.push({name: this.name, value: v});
+        }
+    });
+    //hand off to jQuery.param for proper encoding
+    return $.param(a);
+};
+
+/**
+ * Returns the value(s) of the element in the matched set.  For example, consider the following form:
+ *
+ *  <form><fieldset>
+ *      <input name="A" type="text" />
+ *      <input name="A" type="text" />
+ *      <input name="B" type="checkbox" value="B1" />
+ *      <input name="B" type="checkbox" value="B2"/>
+ *      <input name="C" type="radio" value="C1" />
+ *      <input name="C" type="radio" value="C2" />
+ *  </fieldset></form>
+ *
+ *  var v = $('input[type=text]').fieldValue();
+ *  // if no values are entered into the text inputs
+ *  v == ['','']
+ *  // if values entered into the text inputs are 'foo' and 'bar'
+ *  v == ['foo','bar']
+ *
+ *  var v = $('input[type=checkbox]').fieldValue();
+ *  // if neither checkbox is checked
+ *  v === undefined
+ *  // if both checkboxes are checked
+ *  v == ['B1', 'B2']
+ *
+ *  var v = $('input[type=radio]').fieldValue();
+ *  // if neither radio is checked
+ *  v === undefined
+ *  // if first radio is checked
+ *  v == ['C1']
+ *
+ * The successful argument controls whether or not the field element must be 'successful'
+ * (per http://www.w3.org/TR/html4/interact/forms.html#successful-controls).
+ * The default value of the successful argument is true.  If this value is false the value(s)
+ * for each element is returned.
+ *
+ * Note: This method *always* returns an array.  If no valid value can be determined the
+ *    array will be empty, otherwise it will contain one or more values.
+ */
+$.fn.fieldValue = function(successful) {
+    for (var val=[], i=0, max=this.length; i < max; i++) {
+        var el = this[i];
+        var v = $.fieldValue(el, successful);
+        if (v === null || typeof v == 'undefined' || (v.constructor == Array && !v.length)) {
+            continue;
+        }
+        if (v.constructor == Array) {
+            $.merge(val, v);
+        }
+        else {
+            val.push(v);
+        }
+    }
+    return val;
+};
+
+/**
+ * Returns the value of the field element.
+ */
+$.fieldValue = function(el, successful) {
+    var n = el.name, t = el.type, tag = el.tagName.toLowerCase();
+    if (successful === undefined) {
+        successful = true;
+    }
+
+    if (successful && (!n || el.disabled || t == 'reset' || t == 'button' ||
+        (t == 'checkbox' || t == 'radio') && !el.checked ||
+        (t == 'submit' || t == 'image') && el.form && el.form.clk != el ||
+        tag == 'select' && el.selectedIndex == -1)) {
+            return null;
+    }
+
+    if (tag == 'select') {
+        var index = el.selectedIndex;
+        if (index < 0) {
+            return null;
+        }
+        var a = [], ops = el.options;
+        var one = (t == 'select-one');
+        var max = (one ? index+1 : ops.length);
+        for(var i=(one ? index : 0); i < max; i++) {
+            var op = ops[i];
+            if (op.selected) {
+                var v = op.value;
+                if (!v) { // extra pain for IE...
+                    v = (op.attributes && op.attributes.value && !(op.attributes.value.specified)) ? op.text : op.value;
+                }
+                if (one) {
+                    return v;
+                }
+                a.push(v);
+            }
+        }
+        return a;
+    }
+    return $(el).val();
+};
+
+/**
+ * Clears the form data.  Takes the following actions on the form's input fields:
+ *  - input text fields will have their 'value' property set to the empty string
+ *  - select elements will have their 'selectedIndex' property set to -1
+ *  - checkbox and radio inputs will have their 'checked' property set to false
+ *  - inputs of type submit, button, reset, and hidden will *not* be effected
+ *  - button elements will *not* be effected
+ */
+$.fn.clearForm = function(includeHidden) {
+    return this.each(function() {
+        $('input,select,textarea', this).clearFields(includeHidden);
+    });
+};
+
+/**
+ * Clears the selected form elements.
+ */
+$.fn.clearFields = $.fn.clearInputs = function(includeHidden) {
+    var re = /^(?:color|date|datetime|email|month|number|password|range|search|tel|text|time|url|week)$/i; // 'hidden' is not in this list
+    return this.each(function() {
+        var t = this.type, tag = this.tagName.toLowerCase();
+        if (re.test(t) || tag == 'textarea') {
+            this.value = '';
+        }
+        else if (t == 'checkbox' || t == 'radio') {
+            this.checked = false;
+        }
+        else if (tag == 'select') {
+            this.selectedIndex = -1;
+        }
+        else if (t == "file") {
+            if (/MSIE/.test(navigator.userAgent)) {
+                $(this).replaceWith($(this).clone(true));
+            } else {
+                $(this).val('');
+            }
+        }
+        else if (includeHidden) {
+            // includeHidden can be the value true, or it can be a selector string
+            // indicating a special test; for example:
+            //  $('#myForm').clearForm('.special:hidden')
+            // the above would clean hidden inputs that have the class of 'special'
+            if ( (includeHidden === true && /hidden/.test(t)) ||
+                 (typeof includeHidden == 'string' && $(this).is(includeHidden)) ) {
+                this.value = '';
+            }
+        }
+    });
+};
+
+/**
+ * Resets the form data.  Causes all form elements to be reset to their original value.
+ */
+$.fn.resetForm = function() {
+    return this.each(function() {
+        // guard against an input with the name of 'reset'
+        // note that IE reports the reset function as an 'object'
+        if (typeof this.reset == 'function' || (typeof this.reset == 'object' && !this.reset.nodeType)) {
+            this.reset();
+        }
+    });
+};
+
+/**
+ * Enables or disables any matching elements.
+ */
+$.fn.enable = function(b) {
+    if (b === undefined) {
+        b = true;
+    }
+    return this.each(function() {
+        this.disabled = !b;
+    });
+};
+
+/**
+ * Checks/unchecks any matching checkboxes or radio buttons and
+ * selects/deselects and matching option elements.
+ */
+$.fn.selected = function(select) {
+    if (select === undefined) {
+        select = true;
+    }
+    return this.each(function() {
+        var t = this.type;
+        if (t == 'checkbox' || t == 'radio') {
+            this.checked = select;
+        }
+        else if (this.tagName.toLowerCase() == 'option') {
+            var $sel = $(this).parent('select');
+            if (select && $sel[0] && $sel[0].type == 'select-one') {
+                // deselect all other options
+                $sel.find('option').selected(false);
+            }
+            this.selected = select;
+        }
+    });
+};
+
+// expose debug var
+$.fn.ajaxSubmit.debug = false;
+
+// helper fn for console logging
+function log() {
+    if (!$.fn.ajaxSubmit.debug) {
+        return;
+    }
+    var msg = '[jquery.form] ' + Array.prototype.join.call(arguments,'');
+    if (window.console && window.console.log) {
+        window.console.log(msg);
+    }
+    else if (window.opera && window.opera.postError) {
+        window.opera.postError(msg);
+    }
+}
+
+}));
+/*! http://mths.be/placeholder v2.0.7 by @mathias */
+;(function(window, document, $) {
+
+	var isInputSupported = 'placeholder' in document.createElement('input');
+	var isTextareaSupported = 'placeholder' in document.createElement('textarea');
+	var prototype = $.fn;
+	var valHooks = $.valHooks;
+	var propHooks = $.propHooks;
+	var hooks;
+	var placeholder;
+
+	if (isInputSupported && isTextareaSupported) {
+
+		placeholder = prototype.placeholder = function() {
+			return this;
+		};
+
+		placeholder.input = placeholder.textarea = true;
+
+	} else {
+
+		placeholder = prototype.placeholder = function() {
+			var $this = this;
+			$this
+				.filter((isInputSupported ? 'textarea' : ':input') + '[placeholder]')
+				.not('.placeholder')
+				.bind({
+					'focus.placeholder': clearPlaceholder,
+					'blur.placeholder': setPlaceholder
+				})
+				.data('placeholder-enabled', true)
+				.trigger('blur.placeholder');
+			return $this;
+		};
+
+		placeholder.input = isInputSupported;
+		placeholder.textarea = isTextareaSupported;
+
+		hooks = {
+			'get': function(element) {
+				var $element = $(element);
+
+				var $passwordInput = $element.data('placeholder-password');
+				if ($passwordInput) {
+					return $passwordInput[0].value;
+				}
+
+				return $element.data('placeholder-enabled') && $element.hasClass('placeholder') ? '' : element.value;
+			},
+			'set': function(element, value) {
+				var $element = $(element);
+
+				var $passwordInput = $element.data('placeholder-password');
+				if ($passwordInput) {
+					return $passwordInput[0].value = value;
+				}
+
+				if (!$element.data('placeholder-enabled')) {
+					return element.value = value;
+				}
+				if (value === '') {
+					element.value = value;
+					// Issue #56: Setting the placeholder causes problems if the element continues to have focus.
+					if (element != safeActiveElement()) {
+						// We can't use `triggerHandler` here because of dummy text/password inputs :(
+						setPlaceholder.call(element);
+					}
+				} else if ($element.hasClass('placeholder')) {
+					clearPlaceholder.call(element, true, value) || (element.value = value);
+				} else {
+					element.value = value;
+				}
+				// `set` can not return `undefined`; see http://jsapi.info/jquery/1.7.1/val#L2363
+				return $element;
+			}
+		};
+
+		if (!isInputSupported) {
+			valHooks.input = hooks;
+			propHooks.value = hooks;
+		}
+		if (!isTextareaSupported) {
+			valHooks.textarea = hooks;
+			propHooks.value = hooks;
+		}
+
+		$(function() {
+			// Look for forms
+			$(document).delegate('form', 'submit.placeholder', function() {
+				// Clear the placeholder values so they don't get submitted
+				var $inputs = $('.placeholder', this).each(clearPlaceholder);
+				setTimeout(function() {
+					$inputs.each(setPlaceholder);
+				}, 10);
+			});
+		});
+
+		// Clear placeholder values upon page reload
+		$(window).bind('beforeunload.placeholder', function() {
+			$('.placeholder').each(function() {
+				this.value = '';
+			});
+		});
+
+	}
+
+	function args(elem) {
+		// Return an object of element attributes
+		var newAttrs = {};
+		var rinlinejQuery = /^jQuery\d+$/;
+		$.each(elem.attributes, function(i, attr) {
+			if (attr.specified && !rinlinejQuery.test(attr.name)) {
+				newAttrs[attr.name] = attr.value;
+			}
+		});
+		return newAttrs;
+	}
+
+	function clearPlaceholder(event, value) {
+		var input = this;
+		var $input = $(input);
+		if (input.value == $input.attr('placeholder') && $input.hasClass('placeholder')) {
+			if ($input.data('placeholder-password')) {
+				$input = $input.hide().next().show().attr('id', $input.removeAttr('id').data('placeholder-id'));
+				// If `clearPlaceholder` was called from `$.valHooks.input.set`
+				if (event === true) {
+					return $input[0].value = value;
+				}
+				$input.focus();
+			} else {
+				input.value = '';
+				$input.removeClass('placeholder');
+				input == safeActiveElement() && input.select();
+			}
+		}
+	}
+
+	function setPlaceholder() {
+		var $replacement;
+		var input = this;
+		var $input = $(input);
+		var id = this.id;
+		if (input.value == '') {
+			if (input.type == 'password') {
+				if (!$input.data('placeholder-textinput')) {
+					try {
+						$replacement = $input.clone().attr({ 'type': 'text' });
+					} catch(e) {
+						$replacement = $('<input>').attr($.extend(args(this), { 'type': 'text' }));
+					}
+					$replacement
+						.removeAttr('name')
+						.data({
+							'placeholder-password': $input,
+							'placeholder-id': id
+						})
+						.bind('focus.placeholder', clearPlaceholder);
+					$input
+						.data({
+							'placeholder-textinput': $replacement,
+							'placeholder-id': id
+						})
+						.before($replacement);
+				}
+				$input = $input.removeAttr('id').hide().prev().attr('id', id).show();
+				// Note: `$input[0] != input` now!
+			}
+			$input.addClass('placeholder');
+			$input[0].value = $input.attr('placeholder');
+		} else {
+			$input.removeClass('placeholder');
+		}
+	}
+
+	function safeActiveElement() {
+		// Avoid IE9 `document.activeElement` of death
+		// https://github.com/mathiasbynens/jquery-placeholder/pull/99
+		try {
+			return document.activeElement;
+		} catch (err) {}
+	}
+
+}(this, document, jQuery));
+/*****************************************************************\
+  Events Binding
+/*****************************************************************\
+ * This class allows us to bind a lot of custom events on the DOM
+ * and keep our code clean. It also encourages us to reuse events
+ * that we use often. 
+ * 
+ * This has since been added to the Module class.
+ *
+ * Usage:
+ 
+ 	Y.uk.gov.bristo.events.bind({	
+		'click' : {
+			'.myselector' : functon(){ ... },
+		},
+		'mousein' : {
+			'.myselector' : function(){ ... },
+		}
+ 	});
+ 	
+\*****************************************************************/
+YUI.add('bccevents', function(Y){
+
+ 	Y.namespace("uk.gov.bristol");
+
+    Y.uk.gov.bristol.events = (function(){
+		var _bE = function(k,v){ // private::bindEvents
+			$.each(v, function(l, m){ $(l).on(k, m); });
+		},
+			_bA = function(k,v){ // private::bindAttributes
+			$.each(v, function(p, c){ $("*["+p+"]").each(function(){ c($(this)); }); });
+		};
+		return {
+			bind: function(events){ // events.bind({});
+				$.each(events, function(k, v){
+					if(k == "attributes"){
+						_bA(k,v); // bind attributes
+					}
+					_bE(k,v); // bind events
+				});
+			}
+		};
+	})();
+
+});
+/*****************************************************************\
+  Breakpoint Event Wrapper
+/*****************************************************************\
+ * This module reacts  different breakpoints using media queries
+ * and opens up the functionality of enquire.js to the other
+ * modules using simple subscription events.
+ * Usage:
+	
+	var breakpoints = new Y.uk.gov.bristol.Breakpoints();
+	breakpoints.on('mobile', function(){
+		// this code only executed on mobile
+	});
+	breakpoints.off('mobile', function(){
+		// this code only executed when transitioning 
+		// from mobile->tablet/desktop
+	})
+ 
+ * The three breakpoints available are:
+ * 	- mobile (0px - 480px)
+ *	- tablet (481px - 769px)
+ *	- desktop (769px +)
+ *
+\*****************************************************************/
+
+//console.log("Yo");
+
+YUI().add(['breakpoints'], function(Y){
+
+	var breakpoints = Y.uk.gov.bristol.module.extend({
+
+		DOM: {
+			'primarySlab' : ".span4.priority--primary",
+			'secondarySlab': ".span8.priority--secondary",
+			'complaintsItem' : '.tiled.js--matchHeight .tiled__item__title',
+			'slab' : '.js--matchHeight .slab',
+			'permit' : '.js--matchHeight.permit .permit__inner',
+		},
+		breakpoints: {
+			mobile: "screen and (max-width: 480px)",
+			tablet: "screen and (min-width: 481px) and (max-width: 769px)",
+			dekstop: "screen and (min-width: 769px)"
+		},
+		render: function(){
+
+			
+			this.on('dekstop', function(){
+				
+				// Match Desktop
+				//console.log("DESKTOP: match");
+
+				if (this.DOM.primarySlab.length){
+	    			this.DOM.primarySlab.insertAfter(this.DOM.secondarySlab);
+				}
+				this.DOM.complaintsItem.matchHeight();
+
+		    	this.DOM.slab.matchHeight();
+		    	
+		    	this.DOM.permit.matchHeight();
+		    	
+
+			}, function(){
+				
+				// Unmatch Desktop
+				//console.log("DESKTOP: unmatch");
+				
+				
+				
+				this.DOM.slab.matchHeight('remove');
+
+		    	this.DOM.permit.matchHeight('remove');
+		    	
+			});
+
+			
+			
+			this.on('tablet', function(){
+
+				// Match Tablet
+				//console.log("TABLET: match");
+				
+				if (this.DOM.primarySlab.length){
+	    			this.DOM.primarySlab.insertBefore(this.DOM.secondarySlab);
+				}
+				
+				this.DOM.complaintsItem.matchHeight();
+				
+			}, function(){
+				
+				// Unmatch Mobile
+				//console.log("TABLET: unmatch");
+				
+			});
+			
+			this.on('mobile', function(){
+				
+				// Match Mobile
+				//console.log("MOBILE: match");
+				
+				if (this.DOM.primarySlab.length){
+	    			this.DOM.primarySlab.insertBefore(this.DOM.secondarySlab);
+				}
+				
+			}, function(){
+				
+				// Unmatch Mobile
+				//console.log("MOBILE: unmatch");
+				
+			});
+
+			
+		},
+		
+		on: function(device, fnon, fnoff){
+			/* Lightweight wrapper around enquire, usage:
+				this.on('mobile', funciton(){
+					// mobile matched
+				}, function(){
+					// mobile unmatched
+				});
+			 */
+			// Check breakpoint exists
+			if(!this.breakpoints[device]) return false;
+
+			// Make a wee object
+			obj = {};
+
+			// if the match function exists, add it
+			if(fnon)
+				obj.match = fnon.bind(this);
+
+			// if the unmatch function exists, add it too
+			if(fnoff)
+				obj.unmatch = fnoff.bind(this);
+
+			// do the enquire
+			enquire.register(this.breakpoints[device], obj);
+
+			// Success!
+			return true;
+		},
+		off: function(device, fnoff){
+			return this.on(device, null, fnoff);
+		},
+
+
+	});
+
+	Y.namespace('uk.gov.bristol').Breakpoints = new breakpoints();
+
+},'1.0.0' , {
+    requires: ['module']
+});
+/*****************************************************************\
+  Button States module
+/*****************************************************************\
+ * This module stops the focus state of buttons lingering when 
+ * you drag your mouse off of a button.
+\*****************************************************************/
+
+YUI().add(['button-states'], function(Y){
+
+    Y.namespace('uk.gov.bristol').buttonStates = Y.uk.gov.bristol.module.extend({
+    	DOM: {
+    		'cta' : 'button.cta',
+    	},
+    	events: {
+    		'mousedown $cta' : 'preventFocusState'
+    	},
+    	pluginName: 'buttonStates',
+    	mousedown : false,
+    	preventFocusState: function(e){
+    		var buttone = e,
+				$button = $(buttone.currentTarget),
+				self = this;
+
+			if(this.mousedown){
+				this.$el.off('mouseup');
+			}
+			this.mousedown = true;
+
+			this.$el.one('mouseup', function(e){
+				if(e.target == buttone.target) return;
+				$button.blur();
+				self.mousedown = false;
+			});
+    	}
+    });
+
+},'1.0.0' , {
+    requires: ['module']
+});
+/*****************************************************************\
+  Check Events (passive)
+/*****************************************************************\
+ * This is an events extension to Radios and Checkboxes that 
+ * adds the events 'check', 'uncheck', 'hsa_check' and
+ * 'hsa_uncheck'. 
+ * 
+ * Check and Uncheck can be used anywhere, but HSA is exclusive
+ * to FOI/complaints.
+\*****************************************************************/
+
+YUI().use(['module'], function(Y){
+	
+    var CheckEvents = Y.uk.gov.bristol.module.extend({
+
+    		// Grab different sets of inputs
+	    	DOM: {
+	    		'radiosAndChecks' : 'input[type="radio"], input[type="checkbox"]',
+	    		'radios' : 'input[type="radio"]',
+	    		'checks' : 'input[type="checkbox"]'
+	    	},
+
+	    	// Different handles for the inputs
+	    	events: {
+	    		'change $radios' : "triggerRadioCheckUncheck",
+	    		'change $checks' : "triggerCheckboxCheckUncheck",
+	    		'check $checks' : 'removeError',
+	    		'uncheck $checks' : 'addError',
+	    	},
+
+	    	checkNames : [],
+	    	checkStatus : [],
+
+	    	// Constructor
+	    	render: function(){
+	    		var self = this;
+	    		// Loop through ALL radios and checkboxes and cache their checked value
+	    		this.DOM.radiosAndChecks.each(function(){
+	    			var name = $(this).attr('name'),
+						uid = Math.random().toString(36).substr(2, 9);
+					self.checkNames[name] = self.checkNames[name] ? self.checkNames[name] : [] ;
+					$(this).attr('data-checkid',  $(this).is(":checked"));
+					self.checkNames[name].push($(this));
+	    		});
+	    		return this;
+	    	},
+	    	/* Not sure why this is here. */
+	    	addError: function(e){
+	    		if($(e.currentTarget).attr('data-error') == 'true'){
+	    			$(e.currentTarget).closest('form__item').addClass('.form__item--error');
+	    		}
+	    	},
+	    	removeError: function(e){
+	    		$(e.currentTarget).attr('data-error', 'true');
+	    		$(e.currentTarget).closest('form__item').removeClass('.form__item--error');
+	    	},
+
+	    	//
+	    	triggerRadioCheckUncheck: function(e){
+	    		var check = $(e.currentTarget),
+	    			name = check.attr('name'),
+	    			delayedCheck = null;
+	    		
+	    		// Add a queue system here for HSA. The logic being:
+	    		// queue the unchecks first, then the checks
+				$.each(this.checkNames[name], function(k,v){
+					if(v.attr('id')===$(e.currentTarget).attr('id')){
+						delayedCheck = v; // delay this:
+					}else{
+						v.trigger('hsa_uncheck');
+						v.trigger('uncheck');
+					}
+					return true;
+				});
+
+				delayedCheck.trigger('hsa_check');
+				delayedCheck.trigger('check');
+	    	},
+	    	triggerCheckboxCheckUncheck: function(e){
+	    		var check = $(e.currentTarget),
+	    			name = check.attr('name'),
+	    			delayedChecks = [];
+
+				$.each(this.checkNames[name], function(k,v){
+					if(v.attr('id')===$(e.currentTarget).attr('id')){
+						var isc = (v.is(":checked"))? 'true' : 'false' ;
+						if(isc === v.attr('data-checkid')) return;
+						v.attr('data-checkid', v.is(":checked"));
+						if(isc === 'true'){
+							delayedChecks.push(v);
+						}else{
+							v.trigger('hsa_uncheck');
+							v.trigger('uncheck');
+						}
+						return true;
+					}
+				});
+				$.each(delayedChecks, function(k,v){
+		    		v.trigger('hsa_check');
+					v.trigger('check');
+		    	});
+	    	}
+	    }),
+    	module = new CheckEvents('.form');
+});
+/*****************************************************************\
+  Check Events (passive)
+/*****************************************************************\
+ * This is an events extension to Radios and Checkboxes that 
+ * adds the events 'check', 'uncheck', 'hsa_check' and
+ * 'hsa_uncheck'. 
+ * 
+ * Check and Uncheck can be used anywhere, but HSA is exclusive
+ * to FOI/complaints.
+\*****************************************************************/
+
+YUI().use(['module'], function(Y){
+	
+    var Header = Y.uk.gov.bristol.module.extend({
+    	DOM: {
+    		'mobileMenuToggle' : '.bcc-header__mobile-nav--menu',
+    		'mobileSearchToggle' : '.bcc-header__mobile-nav--search',
+    		'mobileMenu': '.bcc-header__menu',
+    		'mobileSearch': '.bcc-header__search--mobile',
+    		'allMenus' : '.bcc-header__mobile-nav',
+    	},
+    	activeClass: 'bcc-header__mobile-nav--active',
+    	events: {
+    		'mousedown $mobileMenuToggle' : "toggleMenu",
+    		'mousedown $mobileSearchToggle' : "toggleSearch",
+    	},
+    	toggleMenu: function(e){
+    		if($(e.currentTarget).hasClass(this.activeClass)){
+    			this.DOM.allMenus.removeClass(this.activeClass);
+    			return this.hideMenu($(e.currentTarget));
+    		}
+    		this.DOM.allMenus.removeClass(this.activeClass);
+    		return this.showMenu($(e.currentTarget));
+    	},
+    	hideMenu: function(el){
+    		if(el) el.removeClass(this.activeClass);
+    		this.DOM.mobileMenu.removeClass('bcc-header__menu--showmobile');
+    	}, 
+    	showMenu: function(el){
+    		if(el) el.addClass(this.activeClass);
+    		this.hideSearch();
+    		this.DOM.mobileMenu.addClass('bcc-header__menu--showmobile');
+    	},
+
+    	toggleSearch: function(e){
+    		if($(e.currentTarget).hasClass(this.activeClass)){
+    			this.DOM.allMenus.removeClass(this.activeClass);
+    			return this.hideSearch($(e.currentTarget));
+    		}
+    		this.DOM.allMenus.removeClass(this.activeClass);
+    		return this.showSearch($(e.currentTarget));
+    	},
+    	hideSearch: function(el){
+    		if(el) el.removeClass(this.activeClass);
+    		this.DOM.mobileSearch.removeClass('bcc-header__search--showmobile');
+    	}, 
+    	showSearch: function(el){
+    		if(el) el.addClass(this.activeClass);
+    		this.hideMenu();
+    		this.DOM.mobileSearch.addClass('bcc-header__search--showmobile');
+    	},
+    	
+    }),
+	module = new Header('.bcc-header');
+});
+// Leave this in Itermediate for now!
+(function HideShowAttributes(undefined){
+	window.Blockers = {
+		'show' : [],
+		'hide' : [],
+		add : function(type, ids){
+			if(ids && ids.indexOf(' ') != -1){
+				ids = ids.split(' ');
+				var self = this;
+				$.each(ids, function(k, v){
+					if(!self[type][v]) self[type][v] = 0;
+					self.add(type, v);
+					self[type][v]++;
+				});
+				return;
+			}
+			if(!this[type][ids]) this[type][ids] = 0;
+			this[type][ids]++;
+		},
+		remove: function(type, ids){
+			if(ids && ids.indexOf(' ') != -1){
+				ids = ids.split(' ');
+				var self = this;
+				$.each(ids, function(k, v){
+					self.remove(type, v);
+					if(self[type][v]) self[type][v]--;
+				});
+				return;
+			}
+			if(this[type][ids]) this[type][ids]--;
+		},
+		check: function(type, id){
+			Blockers[type][id] = (Blockers[type][id])? Blockers[type][id] : 0 ;
+			if(Blockers[type][id] > 0){
+				return false;
+			}
+			return true;
+		},
+		actionLog : [],
+		flush: function(){
+			if(!!window.devenv){
+				console.log(this.actionLog.join("\n"));
+				this.actionLog = [];
+			}
+		},
+	};
+	// Read checkbox on load
+	function chs(id, attri, action, x){
+		if(attri == action){
+			Blockers.actionLog.push(id+' --- '+action);
+			if(action == "show"){
+				$('#'+id).attr('style', 'display:block;');
+			}else{
+				$('#'+id).attr('style', 'display:none;');
+			}
+		}else{
+			if(Blockers.check(attri, id)){
+				Blockers.actionLog.push(id+' --- '+action);
+				if(action == "show"){
+					$('#'+id).attr('style', 'display:block;');
+				}else{
+					$('#'+id).attr('style', 'display:none;');
+				}
+			}else{
+				Blockers.actionLog.push('BLOCKED --- '+id+' --- '+action);
+			}
+		}
+	}
+	
+	function attrtoggle($el, attri, action){
+		var ids = $el.attr('data-'+attri),
+			dor = ($el.attr('data-'+attri+'-or')) ? $el.attr('data-'+attri+'-or') : false ;
+		if(attri == action){
+			// CHECK
+			if(!dor){
+				Blockers.add(attri, $el.attr('data-'+attri));
+			}
+		}else{
+			// UNCHECK
+			if(!dor){
+				Blockers.remove(attri, $el.attr('data-'+attri));
+			}
+			// Check against blockers
+		}
+		if(ids && ids.indexOf(' ') != -1){
+			ids = ids.split(' ');
+			ids.reverse(); // This might be the key to many of the issues.
+			for(x=0; x < ids.length; x++){
+				chs(ids[x], attri, action, x);
+			}
+		}else{
+			chs(ids, attri, action);
+		}
+		Blockers.flush();
+	}
+
+	// Start up
+	$('input[data-hide]').not(':checked').each(function(){
+		attrtoggle($(this), 'hide', 'show');
+	});
+	$('input[data-show]').not(':checked').each(function(){
+		attrtoggle($(this), 'show', 'hide');
+	});
+	$('input[data-hide]').filter(':checked').each(function(){
+		attrtoggle($(this), 'hide', 'hide');
+	});
+	$('input[data-show]').filter(':checked').each(function(){
+		attrtoggle($(this), 'show', 'show');
+	});
+
+	$('input[data-show]').on('hsa_check', function(){
+		attrtoggle($(this), 'show', 'show');
+	}).on('hsa_uncheck', function(){
+		attrtoggle($(this), 'show', 'hide');
+	});
+	$('input[data-hide]').on('hsa_check', function(){
+		attrtoggle($(this), 'hide', 'hide');
+	}).on('hsa_uncheck', function(){
+		attrtoggle($(this), 'hide', 'show');
+	});
+
+	
+})();
+/*****************************************************************\
+  Error Handling (passive)
+/*****************************************************************\
+ * This is a method that checks if there is errors in the error
+ * panel at the top of pages which require validation.
+\*****************************************************************/
+
+YUI().add(['open-validation'], function(Y){
+	
+
+    Y.namespace('uk.gov.bristol').openValidation = Y.uk.gov.bristol.module.extend({
+
+		pluginName: 'openValidation',
+		
+		// Gran the radios and checks
+		DOM: {
+			'formElements': 'input[type="radio"], input[type="checkbox"]',
+			'textFormElements': 'input[type="text"], input[type="password"], textarea',
+			'dropElements': 'select',
+			'required' : 'input[type="radio"][required], input[type="checkbox"][required]',
+			'requiredText' : 'input[type="text"][required], input[type="password"][required], textarea[required]',
+			'requiredDrops': 'select[required]',
+			'error' : '.field__message--error',
+		},
+
+		// Blur and change events for validation
+		events: {
+			/** Radios and Checks **/
+			'blur $required' : 'validateRequired',
+			'change $required' : 'validateRequired',
+			'change $formElements' : 'validate',
+
+			/** Text **/
+			'blur $requiredText' : 'validateRequiredString',
+			//'keydown $requiredText' : 'validateRequiredString',
+			'change $textFormElements': 'validateText',
+			'keyup $textFormElements': 'validateText',
+			//'keydown $textFormElements' : 'validateText',
+
+			/** Dropdowns **/
+			'blur $requiredDrops' : 'validateRequiredDrop',
+			'change $requiredDrops' : 'validateRequiredDrop',
+			'change $dropElements' : 'validateDrop'
+		},
+
+		// On startup do things
+		render: function(){
+
+			this.$el.attr('data-open-validation-irte', true);
+
+			// check if the parent element has required attribute
+			if(this.$el.attr('required')){
+
+				// if it does, bind required events to all elements inside.
+				this.DOM.formElements.on('blur', this.validateRequired.bind(this));
+				this.DOM.formElements.on('change', this.validateRequired.bind(this));
+				this.DOM.textFormElements.on('blur', this.validateRequiredString.bind(this));
+				//this.DOM.textFormElements.on('keydown', this.validateRequiredString.bind(this));
+				this.DOM.dropElements.on('blur', this.validateRequiredDrop.bind(this));
+				this.DOM.dropElements.on('change', this.validateRequiredDrop.bind(this));
+
+			}
+			if(this.options.targetError){
+				this.DOM.error = $(this.options.targetError);
+			}
+
+
+			// Create the error message, and put it in the right place
+			this.createError();
+
+			this.parentGroup = this.$el.closest('.field--group');
+
+			if(!this.parentGroup.length)
+				this.parentGroup = 0;
+		},
+		
+		// was there a validation error?
+		validateError: 0,
+		
+		// was there a required error?
+		requiredError: 0,
+
+		// default error messages
+		options: {
+			
+			// Default message for when an element is required
+			requiredMessage: function(){
+				return this.$el.attr('data-validate-required-message') ? this.$el.attr('data-validate-required-message') : "This field is required";
+			},
+
+			// Default option for text inputs to validate on keyup
+			keyup: true,
+
+			// create an error element
+			createErrorElement: false,
+
+			ensureErrorElement: true
+		},
+
+		createError: function(){
+			if(this.options.createErrorElement || (!this.DOM.error.length && this.options.ensureErrorElement)){
+				if(this.$el.next('.field__message').length){
+					this.DOM.error = this.$el.next('.field__message');
+				}
+				this.DOM.error = $("<div/>", { "class" : "field__message field__message--error"}).appendTo(this.$el);
+			}
+		},
+
+		validateText: function(e){
+
+			if(!this.options.keyup && $(e.currentTarget).is(':focus'))
+				return;
+
+			// check for the option
+			if(this.options.validation){
+
+				// grab the function & call it
+				var error = this.options.validation.call(this, $(e.currentTarget), this.$el);
+
+				// if it returns TRUE then it errored
+				if(error){
+
+					// add flag to tell the app that there is an outstanding validation error
+					this.validateError = 1;
+
+					// add error to page
+					this.addError(error);
+
+				}else{
+
+					// if it returns FALSE then it validated
+					this.validateError = 0;
+
+					// Recheck required (since it may have just been checked)
+					this.validateRequiredString(e);
+
+					// Remove error
+					this.removeError();
+				}
+			}
+		},
+		validateRequiredDrop: function(e){
+
+			if(!$(e.currentTarget).prop("selectedIndex")){
+
+				// set required error
+				this.requiredError = 1;
+
+				// show the error
+				this.addError(this.getRequiredMessage());
+			}else{
+
+				// unset required error
+				this.requiredError = 0;
+
+				// hide the error(s)
+				this.removeError();
+			}
+		},
+		validateRequiredString: function(e){
+
+			// check if input is empty
+			if($(e.currentTarget).val() === ""){
+			
+				// set required error
+				this.requiredError = 1;
+
+				// show the error
+				this.addError(this.getRequiredMessage());
+			
+			}else{
+
+				// unset required error
+				this.requiredError = 0;
+
+				// hide the error(s)
+				this.removeError();
+			}
+
+		},
+		validateDrop: function(){
+
+		},
+		// Validate if required
+		validateRequired: function(e){
+			// find the checked ones
+			if(this.DOM.formElements.filter(':checked').length){
+
+				// reset the required error 
+				this.requiredError = 0;
+
+				// and remove the error from the page
+				return this.removeError();
+			}
+
+			// add flag to tell the app that there is an outstanding required error
+			this.requiredError = 1;
+			
+			// add the error top the page 
+			return this.addError(this.getRequiredMessage());
+		},
+
+		// Validate if there is an option passed through
+		validate: function(e){
+
+			// check for the option
+			if(this.options.validation){
+
+				// grab the function & call it
+				var error = this.options.validation.call(this, $(e.currentTarget), this.$el);
+
+				// if it returns TRUE then it errored
+				if(error){
+
+					// add flag to tell the app that there is an outstanding validation error
+					this.validateError = 1;
+
+					// add error to page
+					this.addError(error);
+
+				}else{
+
+					// if it returns FALSE then it validated
+					this.validateError = 0;
+
+					// Recheck required (since it may have just been checked)
+					this.validateRequired(e);
+
+					// Remove error
+					this.removeError();
+				}
+			}
+		},
+
+		// Add error to page
+		addError: function(error){
+
+			// Adds it to the parent (fieldset or field)
+			this.$el.attr('data-error', error);
+
+			// Add error class
+			this.$el.addClass('field--error');
+
+			// If there is a parent group
+			if(this.parentGroup) 
+				this.parentGroup.addClass('field--error'); // add the error
+			
+			
+			// Add error message to predefined error element(s)
+			this.DOM.error.html(error);
+		},
+
+
+		// This function removes an error from the parent field if there are no more errors.
+		groupObserve: function(){
+
+			// Return if there is no parent group
+			if(!this.parentGroup) return;
+
+			// Cache the inputs
+			this.parentGroupInputs = (this.parentGroupInputs) ? this.parentGroupInputs: this.parentGroup.find('.field');
+
+			//console.log(this.parentGroup, this.parentGroupInputs.is('.field--error').length);
+
+			// Check for errors
+			if(!this.parentGroupInputs.filter('.field--error').length)
+				this.parentGroup.removeClass('field--error'); // and remove the class.
+
+		},
+
+		// Remove error
+		removeError: function(){
+			
+			// checks for outstanding errors
+			if(this.validateError || this.requiredError) return;
+
+			// then removes from the parent
+			this.$el.removeAttr('data-error');
+
+			// Remove the error class, which also hides error element(s)
+			this.$el.removeClass('field--error');
+
+			// Observe the changes in the group if there is one
+			this.groupObserve();
+
+		},
+
+		getRequiredMessage: function(){
+			if(typeof this.options.requiredMessage === 'function'){
+				return this.options.requiredMessage.call(this);
+			}
+			return this.options.requiredMessage;
+		},
+
+	});
+
+
+	
+	Y.namespace('uk.gov.bristol').pageLoadValidation = Y.uk.gov.bristol.module.extend({
+
+		pluginName: 'pageLoadValidation',
+
+		render: function(){
+
+			var targets = this.getTargets(),
+				message = this.getMessage();
+
+			for (var i = targets.length - 1; i >= 0; i--) {
+				this.generateMessage(targets[i], message);
+			}
+			
+		},
+		events: {
+			"click a": "goTo",
+		},
+		goTo: function(e){
+			var t = (this.getTargets()),
+				cl = $(t).find('input').focus();
+			t = t[0];
+			if($(t).is("input"))
+				return $(t).focus();
+			if(cl.length)
+				return cl.focus();
+			$(t).closest('.field').find('input').focus();
+		},
+		getTargets: function(){
+			return (this.$el.attr('data-ov-target')) ? this.$el.attr('data-ov-target').split(',') : [this.$el.find('a').attr('href')] ;
+		},
+		getMessage: function(){
+			return (this.$el.attr('data-ov-error')) ? this.$el.attr('data-ov-error') : this.$el.find('a').html();
+		},
+		generateMessage: function(selector, message){
+			var $el = this.containerAware($(selector));
+			$el.field.addClass('field--error');
+			$el.message.html(message);
+			$el.input.one('change', function(){ $el.message.html(''); });
+			if(!$el.field.attr('data-open-validation-irte') && !$el.field.closest('[data-open-validation-irte]').length) {
+				this.bindResolution($el);
+			}
+		},
+		bindResolution: function($el){
+			$el.target.OpenValidationOrbit();
+		},
+		containerAware: function($el){
+
+			var input = ($el.is('input') || $el.is('select') || $el.is('.drop') || $el.is('textarea')) ? $el : null;
+			if(!input) input = $el.find('input, .drop, textarea');
+			
+			var field = input.closest('.field'),
+				fieldset = (field.closest('.field--set').length) ? field.closest('.field--set') : (
+					(field.closest('.field--group').length) ? field.closest('.field--group') : null
+				),
+				message = (field.find('.field__message').length) ? field.find('.field__message') : (
+					(field.next('.field__message').length) ? field.next('.field__message') : (
+						$el.next('.field__message').length ? field.next('.field__message') : null
+					)
+				) ;
+
+			return this.ensureMessageElement({
+				'field': field,
+				'fieldset': fieldset,
+				'input': input,
+				'target': $el ,
+				'message': message,
+				'orbit': (fieldset) ? fieldset:  field,
+			});
+		},
+		ensureMessageElement: function($el){
+			if($el.message) return $el;
+			$el.message = $('<div class="field__message field__message--error" />');
+			if($el.target.is('input[type="text"]') || $el.target.is('.field--set') || $el.target.is('.field--group')){
+				$el.target.after($el.message);
+			}else{
+				$el.target.append($el.message);
+			}
+			return $el;
+		},
+
+	});
+
+	Y.namespace('uk.gov.bristol').OVOrbit = Y.uk.gov.bristol.module.extend({
+
+		pluginName: 'OpenValidationOrbit',
+
+		render: function(){
+			this.orbiter = this.findOrbiter(this.$el);
+			if(!this.orbiter.attr('data-open-validation-orbiter')){
+				var self = this;
+				this.orbiter.on('change', 'input, textarea, select', function(){
+					$(this).closest('.field').removeClass('field--error');
+					self.check();
+				});
+				this.orbiter.attr('data-open-validation-orbiter', true);
+			}
+
+		},
+
+		check: function(){
+			if(!this.orbiter.find('.field--error').length)
+				this.orbiter.removeClass('field--error');
+		},
+
+		findOrbiter: function(field){
+			return (field.closest('.field--set').length) ? field.closest('.field--set') : (
+				(field.closest('.field--group').length) ? field.closest('.field--group') : (
+					(field.closest('.field')) ? field.closest('.field') : (
+						(field.is('.field')) ? field : null
+					)
+				)
+			);
+		},
+
+	});
+
+
+
+	/*
+
+	Y.namespace('uk.gov.bristol').pageLoadValidation = Y.uk.gov.bristol.module.extend({
+
+		pluginName: 'pageLoadValidation2',
+
+		DOM: {
+			"errors" : ".open-validation__error",
+		},
+
+		events: {
+
+		},
+
+		render: function(){
+
+				var target = this.$el.attr('data-ov-target'),
+					message = (this.$el.attr('data-ov-error')) ? this.$el.attr('data-ov-error') : false ,
+					isIndividual = this.$el.attr('data-ov-individual');
+
+				if(!message)
+					message = this.$el.find('a').html();
+
+				if(!target)
+					target = this.$el.find('a').attr('href');
+
+				if(isIndividual)
+					return this.showIndividualError(target, message);
+
+				this.showError(target, message);
+
+
+		},
+
+		bindResolution: function(field){
+			// Delegate the field group resolution
+			if(field.is('.field--group'))
+				return this.bindGroupResolution(field);
+
+			var inputs = field.children('input[type="password"], input[type="email"], input[type="text"], textarea'),
+				radioschecks = field.children('input[type="radio"], input[type="checkbox"]'),
+				selects = field.find(" > .drop select"),
+				numberOfErrors = inputs.length,
+				self = this,
+				singleEvent = function(){
+					// reduce the errors
+					numberOfErrors--;
+					// If we hit zero
+					if(numberOfErrors <= 0){
+						// remove the message
+						field.removeClass('field--error');
+					}
+				};
+
+			// Bind a single event to the dropdowns (seperate selector)
+			selects.one('change', singleEvent);
+
+			// Bind a single event to the inputs
+			inputs.one('keyup',singleEvent );
+
+			// Bind a single event to all the radios
+			radioschecks.one('change', function(){
+				field.removeClass('field--error');
+			});
+		},
+
+		bindGroupResolution: function(field){
+			var allFields = field.find('.field--error');
+
+			field.on('change keyup', 'input, textarea, select', function(e){
+				if(field.find('.field--error').length <= 0)
+					field.removeClass('field--error').off(e);						
+			});
+
+		},
+			// Look into combining group resolution and group observation
+		// 	var inputs = field.find("input, textarea, select");
+		// 	inputs.change(function(e){
+		// 		if(!field.find('.field--error').length){
+		// 			field.removeClass('field--error');
+		// 			$(this).off(e);
+		// 		}
+		// 	});
+		// },
+		// setupGroupObserve: function(group){
+		// 	var self = this;
+		// 	console.log();
+		// 	group.find('input, textarea, select').on('change',function(){
+		// 		console.log('changed', $(this).closest('.field--group'));
+		// 		self.groupObserve($(this).closest('.field--group'));
+		// 	});
+		// },
+		groupObserve: function(parentGroup){
+			// Return if there is no parent group
+			if(!parentGroup) return;
+
+			// Cache the inputs
+			parentGroupInputs = parentGroup.find('.field');
+
+			//console.log(this.parentGroup, this.parentGroupInputs.is('.field--error').length);
+
+			// Check for errors
+			if(!parentGroupInputs.filter('.field--error').length)
+				parentGroup.removeClass('field--error'); // and remove the class.
+
+		},
+
+		showError: function(target, message){
+			// @TODO, find all fields and add the un-error thing.
+			if(!message) return;
+			var self = this;
+			$(target).each(function(){
+				var tag = $(this);
+				if(!tag.is('.field'))
+					tag = $(this).closest('.field');
+				var messageTag = tag.find('.field__message--error').first();
+				if(!messageTag.length){
+					messageTag = self.generateMessage(message);
+					if(tag.is('.field--group'))
+						tag.after(messageTag);
+					else
+						tag.append(messageTag);
+				}else{
+					messageTag.html(message);
+				}
+
+				tag.addClass('field--error');
+
+				self.bindResolution(tag);
+
+			});
+		},
+		newgenMessage: function(tag, message){
+			var mtag = tag.closest('.field').find('.field__message');
+			if(!mtag.length)
+				mtag = tag.next('.field__message');
+			if(!mtag.length)
+				return mtag = this.generateMessage(message);
+			if(message)
+				mtag.html(message);
+		},
+		showIndividualError: function(target, message){
+			var self = this;
+			$(target).each(function(){
+				var tag = $(this);
+
+				self.newgenMessage(tag, message);
+
+				if(!tag.is('.field'))
+					tag = $(this).closest('.field');
+				// if($(this).is('input'))
+				// 	self.bindValidationEvent($(this));
+				tag.addClass('field--error');
+				self.bindResolution(tag);
+			});
+		},
+		generateMessage: function(message){
+			if(!message) return '';
+			return '<div class="field__message field__message--error">'+message+'</div>';
+		},
+		bindValidationEvent: function($el){
+			$el.on('change', function(){
+				$(this).closest('.field').removeClass('field--error');
+			});
+		}
+	});
+
+	var groupObserver = Y.uk.gov.bristol.module.extend({
+
+		pluginName: 'observe',
+
+		options: {
+			'change': null
+		},
+
+		render: function(){
+			if(this.options.change) {
+				var self = this;
+				this.$el.on('change', 'input, textarea', function(){
+					self.options.change.call(this, $(this), self.$el);
+				});
+			}
+		},
+
+
+	});
+*/
+
+},'1.0.0' , {
+    requires: ['module']
+});
+/*****************************************************************\
+  Prevent Double Submit
+/*****************************************************************\
+ * This module blocks buttons submitting a form twice and 
+ * provides a loading "spinner" when clicked. Falls back to
+ * "Loading..." on lesser browsers.
+ *
+ * TODO: Use feature detection instead of IE hack.
+\*****************************************************************/
+
+YUI().use(['module'], function(Y){
+    var PreventDoubleSubmit = Y.uk.gov.bristol.module.extend({
+    		DOM: {
+    			'linkButton' : 'a.js--prevent-double',
+            },
+            events: {
+                'submit $el' : 'preventSecondSubmission',
+                'click $linkButton' : 'disableButton',
+            },
+            render: function(){
+                if (!Modernizr.csstransitions) {
+                    this.template = '<center>loading...</center>';
+                }
+            },
+            // Spinner Template
+            template: '<div class="spinner"><div class="bounce1"></div><div class="bounce2"></div><div class="bounce3"></div></div>',
+            pluginName: "preventDoubleSubmit",
+            preventSecondSubmission: function(e){
+                // Grab all the buttons that prevent a double submit
+                var $preventDoubleButtons = $(e.currentTarget).find(".js--prevent-double"),
+                    // Grab the button that has been clicked
+                    $btn = $(e.currentTarget).data('clicked');
+
+                // If its a submit button, copy the options on it for Spring Webflow.
+                if($btn.is('[type="submit"]')){
+                    $(e.currentTarget).append($("<input/>", {
+                        type: 'hidden',
+                        value: $btn.attr('value'),
+                        name: $btn.attr('name'),
+                    }));
+                }
+                // If its not a prevent double button then allow the submit
+                if(!$btn.hasClass('js--prevent-double')) return true;
+
+                // ... if not disable the button
+                this.disableButton($preventDoubleButtons);
+
+                // Ensure the submit is continued
+                return true;
+            },
+            disableButton: function($jpd){
+
+                // Grab button if its from an event
+                $jpd = ($jpd.currentTarget)? $($jpd.currentTarget) : $jpd;
+
+                // Disable the button
+                $jpd.attr("disabled", "disabled").addClass("disabled").closest(".form__actions").addClass("form__actions--disabled");
+
+                // ... and disable the parent group
+                $jpd.closest(".cta-group").addClass("cta-group--disabled");
+
+                // Loop through to preserve height and width
+                $jpd.each(function(){
+                    var btnh = $(this).innerHeight(),
+                        btnw = $(this).innerWidth(),
+                        btnmt = $(this).css('margin-top');
+                    $(this).css({
+                        "height": btnh,
+                        "width" : btnw,
+                        'margin-top' : btnmt
+                    });
+                });
+                $jpd.attr('data-html-value', $jpd.html());
+                // Inject the template (spinner)
+                $jpd.html(this.template);
+
+                // Remove the icon
+                $jpd.removeClass("cta--icon");
+                return true;
+            }
+    	});
+    	//module = new PreventDoubleSubmit('form:has(.js--prevent-double)').PreventDoubleSubmit();
+});
+/*****************************************************************\
+  Address Lookup Module
+/*****************************************************************\
+ * This module reacts to the address lookup dropdown menu and
+ * shows a green affirmation panel of the current address.
+ *
+\*****************************************************************/
+
+YUI().add(['address-lookup'], function(Y){
+
+    Y.namespace('uk.gov.bristol').AddressLookup = Y.uk.gov.bristol.module.extend({
+
+        // Grab the DOM elements
+    	DOM: {
+    		'dropdown' : 'select',
+    	},
+    	
+        // Delegate the dropdown changing event
+        events: {
+    		'change $dropdown' : 'renderTemplate',
+    	},
+
+        // Assign jQuery plugin name
+    	pluginName : "addresslookup",
+
+        // Default options
+    	options: {
+    		advancedClass: 'address-lookup--isActive',
+			dynamicAddressClass: 'address-lookup--isSelected',
+			dynamicAddressTemplate: function(klass, message){ 
+				return '<div class="panel panel--affirm panel--date info info--affirm info--reverse '+klass+'"><span class="panel__title">Your selected address:</span><strong class="panel__copy info__copy">'+message+'</strong></div>'; 
+			},
+    	},
+
+        // Constructor
+    	render: function(){
+
+    		this.$el.addClass(this.options.advancedClass);
+    		if(this.DOM.dropdown)
+				this.renderTemplate();
+    	},
+
+        // Renders the address using the passed in template from options
+    	renderTemplate: function(){
+
+            // remove the old templates
+    		this.removeOldTemplate();
+            
+            // Dont render if there is no selected address
+            if (this.optionNoSelected()) return;
+
+            // Find the parent formitem (Old form elements)
+    		this.DOM.dropdown.closest('.form__item').append(
+                // add the dynamic template passing in the selected option
+				this.options.dynamicAddressTemplate(this.options.dynamicAddressClass, this.$el.find('option:selected').text())
+			);
+
+            // Find the closest field (New form elements)
+            this.DOM.dropdown.closest('.field').append(
+                // add the dynamic template passing in the selected option
+                this.options.dynamicAddressTemplate(this.options.dynamicAddressClass, this.$el.find('option:selected').text())
+            );
+    	},
+
+        // Checks to see if an address was selected
+    	optionNoSelected: function(){
+    		return !!(this.DOM.dropdown[0].selectedIndex === 0 || this.DOM.dropdown[0].selectedIndex === -1);
+    	},
+
+        /// Removed the old address from DOM.
+    	removeOldTemplate: function(){
+    		if($('.'+this.options.dynamicAddressClass).length)
+    			$('.'+this.options.dynamicAddressClass).remove();
+    	}
+        
+    });
+
+});
+/*****************************************************************\
+  Error Handling (passive)
+/*****************************************************************\
+ * This is a method that checks if there is errors in the error
+ * panel at the top of pages which require validation.
+\*****************************************************************/
+
+YUI().use(['module','open-validation'], function(Y){
+
+    var ErrorHandling = Y.uk.gov.bristol.module.extend({
+		pluginName: 'headerErrors',
+		render: function(){
+
+			var href = this.$el.attr("href"),
+				text = this.$el.text(),
+				$formitem = $(".form " + href),
+				$formset = $formitem.closest(".form__set"),
+				$isformitemgroup = $formitem.is('.form__item--permit-group');
+
+
+			if($formitem.is('.field')){
+				return this.shimNewFormFields($formitem, text);
+			}
+
+			// Add error class
+			$formitem.addClass("form__item--error");
+			if(!$isformitemgroup){
+				if($formitem.closest('.form__item--permit-group').length){
+					$formitem.next('.form__item__message').show();
+				}
+				if($formitem.is('.form__set--showafter')){
+					$formitem.next('.form__item__message').addClass('.form__item__message--error').text(text).show();
+				}else{
+					$formitem.find(".form__item__message--error").text(text);
+				}
+			}else{
+				$formitem.addClass('form__item-permit-group--error');
+				$formitem.append('<div class="form__item__message--error">'+text+'</div>');
+			}
+			$formitem.find('input').on('change', function(){
+				$(this).closest('.form__item--error').removeClass('form__item--error');
+			});
+			// Add error to form__set if it exists.
+			if($formset.length) $formset.addClass("form__set--error").parent().find('h2').addClass('invalid');
+		},
+		shimNewFormFields: function(target, message){
+
+				if($.trim(message) == "??????") message = false;
+				this.showError(target, message);
+
+		},
+
+		bindResolution: function(field){
+			if(field.is('.field--group'))
+				return this.bindGroupResolution(field);
+
+			var inputs = field.children("input, textarea");
+				numberOfErrors = inputs.length;
+			inputs.one('change', function(){
+				numberOfErrors--;
+				if(numberOfErrors <= 0){
+					field.removeClass('field--error');
+				}
+			});
+		},
+
+		bindGroupResolution: function(field){
+			// Look into combining group resolution and group observation
+			var inputs = field.find("input, textarea");
+			inputs.change(function(e){
+				if(field.find('.field--error').length == 1){
+					field.removeClass('field--error');
+					field.next('.field__message--error').remove();
+					$(this).off(e);
+				}
+			});
+		},
+
+		showError: function(target, message){
+			// @TODO, find all fields and add the un-error thing.
+			var self = this;
+			$(target).each(function(){
+				var tag = $(this);
+				if(!tag.is('.field'))
+					tag = $(this).closest('.field');
+				if(tag.is('.field--group')){
+					tag.addClass('field--error');
+					if(message) tag.after(self.generateMessage(message));
+					
+				}else if(message){
+					tag.append(self.generateMessage(message));
+				}
+				tag.addClass('field--error');
+				self.bindResolution(tag);
+			});
+		},
+		showIndividualError: function(target, message){
+			var self = this;
+			$(target).each(function(){
+				var tag = $(this);
+				if(message)
+					tag.after(self.generateMessage(message));
+				if(!tag.is('.field'))
+					tag = $(this).closest('.field');
+				// if($(this).is('input'))
+				// 	self.bindValidationEvent($(this));
+				tag.addClass('field--error');
+				self.bindResolution(tag);
+			});
+		},
+		generateMessage: function(message){
+			if(!message) return '';
+			return '<div class="field__message field__message--error">'+message+'</div>';
+		},
+		bindValidationEvent: function($el){
+			$el.on('change', function(){
+				$(this).closest('.field').removeClass('field--error');
+			});
+		}
+	});
+	//module = new ErrorHandling("#errors a.error__item__link");
+});
+/*****************************************************************\
+  Title of the module (passive)
+/*****************************************************************\
+ * Anything thats not immediately obvious at a glance goes here.
+ *
+ * TODO: Any improvements/technical debt goes here.
+\*****************************************************************/
+
+// New Event Module
+YUI().use(['bccevents'], function(Y){
+	
+	// We can now use BCC events
+	Y.uk.gov.bristol.events.bind({
+
+		// Bind events when attributes are used
+		"attributes" : {
+
+			// When an element has data-scoll-to
+			"data-scroll-to" : function($el){
+				// scroll to its position (BEING OVERRITTEN BY ANOTHER SCROLLTO)
+				$('html, body').animate({
+			        scrollTop: $el.offset().top
+			    }, 0);
+			}
+
+
+		},
+
+		'click' : {
+
+			// Remove Form Item Error on click, (See #CPDP-2928)
+			".form__item--error:has(.uniform__checkbox)" : function(){
+				$(this).removeClass("form__item--error");
+			},
+
+			// Use for detecting which button was clicked on a form submit
+			'form' : function(e){
+				e = e || window.e;
+				var target = e.target || e.srcElement;
+				
+				$(this).data('clicked',$(e.target));
+			}
+
+		},
+		'change' : {
+
+			// Bug fix (See #CPDP-2744)
+			// Move to Parking module? --- yes
+			"#parking__visitor-permits__choose .form__item__field" : function(){
+				$(this).closest(".slab").removeClass("form__item--error");
+			}
+
+		}
+		
+
+	});
+
+});
+
+
+/*****************************************************************\
+  Fileupload module - JQuery Plugin
+/*****************************************************************\
+ * This module converts Non-js fileupload components into an
+ * interactive upload form. With fall backs for IE8 and Android.
+ *
+\*****************************************************************/
+
+YUI().use(['module'], function(Y){
+    var FileUpload = Y.uk.gov.bristol.module.extend({
+        DOM: {
+
+            'fileList'          : '.docupload__body',
+            'allfiles'          : '.docupload__file',
+            'files'             : '.docupload__file:not(.docupload__file--uploaded)',
+            'uploadedFiles'     : '.docupload__file--success',
+            'uploadbtn'         : '.form__actions',
+            'removeFile'        : '.docupload__file--success .docupload__fileremove',
+            'dismissFile'       : '.docupload__file--error .docupload__fileremove',
+            'fileLimit'         : '.docupload__error',
+            'type'              : '[name="uploadType"]',
+            'fileLimitMessage'  : '[name="tooManyFilesError"]',
+            'genericError'      : '[name="generalError"]',
+            'tiptype'           : '.docupload__tiptype',
+        },
+        pluginName: 'fileUpload', /* Exports as JQuery Plugin */
+        events: {
+            'click $removeFile' : 'removeFile',
+            'click $dismissFile' : 'dismissFile',
+        },
+        fileLimit : 0,
+        currentLimit : 0,
+        uploadLimit: 0,
+        
+        render: function(){
+
+            // Legacy support for IE8/9
+            if (!window.ProgressEvent || !window.FormData)
+                return this.legacySupport();
+
+            // If the preview page, also abort
+            if(this.$el.hasClass('docupload--preview')) 
+                return this.previewPage();
+
+            // Set limits
+            this.fileLimit = this.DOM.allfiles.length;
+            this.uploadLimit = this.currentLimit = this.DOM.uploadedFiles.length;
+
+            // Set some templates
+            this.fileTemplate =  $('<div class="docupload__file"><input type="file"></div>');
+
+            // Modify the DOM
+            this.DOM.uploadbtn.remove();
+            this.DOM.files.remove();
+            this.DOM.fileLimit.remove();
+
+            // GA stuff
+            this.currentService = $('[data-service]').attr('data-service');
+
+            this.tooManyFiles = $('<div/>', {
+                'class' : "docupload__error docupload__error--toomuch"
+            });
+
+            // Nice code here... haha
+            this.$el.find('.docupload__body').after(this.tooManyFiles);
+
+            // Create first new file
+            this.newFile();
+
+            // chain me.
+            return this;
+        },
+        dismissFile: function(e){
+            var $el = $(e.currentTarget).closest('.docupload__file');
+            $el.animate({
+                height: 0,
+                padding: 0,
+                opacity: 0,
+                width: '80%',
+            }, function(){
+                $(this).remove();
+            });
+            e.preventDefault();
+        },
+        removeFile: function(e){
+            // Cache element
+            var $el = $(e.currentTarget).closest('.docupload__file');
+
+            // Prevent double removal
+            if($el.attr('removing')) return;
+            $el.removeAttr('removing');
+            
+            if($el.parent().nextThrough(':tabbable')) $el.nextThrough('button:tabbable').focus();
+            if($el.nextThrough('button')) $el.nextThrough('button:tabbable').focus();
+
+            $el.animate({
+                height: 0,
+                padding: 0,
+                opacity: 0,
+                width: '80%',
+            }, function(){
+                $(this).remove();
+            });
+
+
+            // If there is a delete endpoint on the remove button
+            if($(e.currentTarget).attr('data-delete-endpoint')){
+                // send a post to it to remove the file
+                $.post($(e.currentTarget).attr('data-delete-endpoint'));
+            }
+
+            if(this.uploadLimit == this.fileLimit){
+                this.currentLimit--;
+                this.uploadLimit--;
+
+                this.newFile();
+                e.preventDefault();
+                return;
+            }
+            //this.newFile();
+            this.uploadLimit--;
+            this.currentLimit--;
+
+            e.preventDefault();
+        },
+        legacySupport: function(){
+            // HAD TO REMOVE BECAUSE OF BROWSER ISSUES.
+            return;
+            // Changes here for older browsers.
+            var $button = $('<button class="cta docupload__uploadbutton">Choose File</button><span class="filename">No file selected</span>'),
+                self = this;
+
+            // Loop through files
+            this.DOM.files.each(function(){
+
+                // Set some stuff
+                var input = $(this).find('input'),
+                    btn = $button.clone();
+
+                // Hide the input button
+                input.hide();
+
+                // When bind the button to the hidden output
+                btn.on('click', function(e){
+                    e.preventDefault();
+                    input.show().click().hide();
+                });
+
+                // Show filename when the input changes
+                input.on('change', function(){
+                    $(this).closest('.docupload__file').find('.filename').html(self.parseFileName($(this).val()));
+                });
+
+                // Add to file element
+                $(this).append(btn);
+
+            });
+        },
+        previewPage: function(){
+            // Changes here for preview page
+        },
+        showFilesLimit: function(){
+            this.DOM.tiptype.hide();
+            this.tooManyFiles.html(this.DOM.fileLimitMessage.text()).fadeIn();
+        },
+        hideFilesLimit: function(){
+            this.DOM.tiptype.show();
+            this.tooManyFiles.fadeOut();
+        },
+        parseFileName: function($val){
+            var valArray = $val.split('\\');
+            valArray = valArray[valArray.length-1];
+            return this.truncate(valArray, 80);
+        },
+        truncate: function (fullStr, strLen, separator) {
+            if (fullStr.length <= strLen) return fullStr;
+
+            separator = separator || '...';
+
+            var sepLen = separator.length,
+                charsToShow = strLen - sepLen,
+                frontChars = Math.ceil(charsToShow/2),
+                backChars = Math.floor(charsToShow/2);
+
+            return fullStr.substr(0, frontChars) + 
+                   separator + 
+                   fullStr.substr(fullStr.length - backChars);
+        },
+        newFile: function(){
+
+            // set some counters
+            var i = this.currentLimit,
+                self = this;
+
+            // if we are at the limit, show the limit message
+            if(i >= this.fileLimit) 
+                return this.showFilesLimit();
+
+            // If not, hide the file limit
+            this.hideFilesLimit();
+
+           
+            // File template clone
+            var template = this.fileTemplate.clone(true),
+
+                // Real fileupload html element
+                input = template.find('input'),
+
+                // Fake fileupload button
+                $button = $('<button class="cta docupload__uploadbutton">Choose File</button><span class="filename">No file selected</span>'),
+
+                // Success message
+                $actions = $('<div class="docupload__actions"><div class="docupload__filestatus">Uploaded <span class="icon icon--bcc icon--bcc--tick"></span> </div><div class="docupload__fileremove"><a href="#">Remove</a></div></div>');
+                
+                // Error message
+                eractions = function(prob){ return $('<div class="docupload__actions"><div class="docupload__filestatus">'+prob+'</div><div class="docupload__fileremove"><a href="#">Dismiss</a></div></div>'); };
+            
+
+            // Create a fake input for the event ID.
+            input.attr({
+                // Name and id matches what liferay sends
+                name: 'file',
+                id: 'file',
+                type: 'file',
+            });
+
+            // Hide the input now
+            input.hide();
+
+            // Bind a remove event.
+            input.on('change', function(){
+
+                // Do some setup
+                var newVal = self.parseFileName($(this).val()),
+                    $form = $('<form/>', {
+                        'action' : '/delegate/files/upload',
+                        'method' : self.DOM.fileList.closest('form').attr('method'),
+                        'enctype' : self.DOM.fileList.closest('form').attr('enctype'),
+                    }),
+                    genericError = self.DOM.genericError.html();
+
+                $form.append($("<input/>", {
+                    type: "hidden",
+                    name: "uploadType",
+                    value: self.DOM.type.html(),
+                }));
+
+                // Increase the amount of files that have been UPLOADED
+                self.uploadLimit++;
+
+                // Add the hidden input with event id to invisible form
+                template.find('input').appendTo($form);
+
+                // Hide the upload button
+                $button.hide();
+
+                // Add the mock elements (upload progress)
+                template.append('<div class="docupload__mock"><div class="docupload__mockupload"><div class="docupload__mockupload-container"><div class="docupload__mockupload-bar"></div></div></div><div class="docupload__mockuploadlabel">'+newVal+' <span class="filesize"></span></div></div>').find('.docupload__mock').hide().fadeIn(500);
+                template.find('.filesize').hide();
+                // Submit the form using ajax
+                $form.ajaxForm({
+
+                    // Handle the progress. Called whenever the progress increases
+                    uploadProgress: function(event, position, total, percentComplete) {
+                        
+                        // Grab % valud
+                        var percentVal = percentComplete + '%';
+
+                        // Assign it to the width of the progress bar
+                        template.find('.docupload__mockupload-bar').width(percentVal);
+
+                    },
+
+                    // Handle the successful upload of the file
+                    success: function() {
+
+                        // Ensure the percentage is 100%
+                        var percentVal = '100%';
+                        template.find('.docupload__mockupload-bar').width(percentVal);
+
+                    },
+                    // Handle the upload regardless if it fails or not.
+                    complete: function(xhr) {
+                        var response;
+                        if(xhr.status == "200" /*&& response.indexOf("{") != 0*/){
+                            // grab the response
+                            response = JSON.parse(xhr.responseText);
+                        }else{
+                            // Mock the response
+                            response = {
+                                message: genericError,
+                                status: "ERROR",
+                            };
+                        }
+
+                        // If success is passed
+                        if( response.status =="SUCCESS" ){
+                            // add the class and add the success message
+                            template.addClass('docupload__file--success').append($actions.hide().fadeIn(300));
+                            template.find('.filesize').show().html(response.fileSize);
+                            template.find('.docupload__fileremove').attr('data-delete-endpoint', response.deletePath);
+                            
+                        } else { // If success is not passed, assume error
+                            
+                            // Generate the error message and remove button.
+                            var $eraction = eractions(response.message);
+                            
+                            // Add the error class
+                            template.addClass('docupload__file--error').append($eraction.hide().fadeIn(300));
+                            
+                            // remove empty span
+                            //template.find('span.filesize').remove();
+                            
+                            // Do some housekeeping to allow the file that was just uploaded
+                            // to be retried and not count towards total files
+                            self.currentLimit--;
+
+                            // If it was the last file, create new file button
+                            if(self.uploadLimit == self.fileLimit)
+                                self.newFile();
+
+                            self.uploadLimit--;
+
+                        }
+                        // Add the done class to hide it from the DOM
+                        template.find('.docupload__mockupload').addClass('docupload__mockupload--done');
+
+                    }
+                    // and finally submit the form
+                }).submit();
+
+                if(self.currentService){
+                    ga('send', 'event', self.currentService, 'file-upload');
+                }
+                // add this class.
+                template.addClass('docupload__file--mockuploading');
+
+                // Create new file, if not Focus the input
+                if(!self.newFile()){
+                    //self.DOM.fileList.next().nextThrough(':tabbable').focus();
+                }
+            
+            });
+            
+            // When the upload button is clicked:
+            $button.on('click', function(e){
+                e.preventDefault();
+                // show the input, click it and hide it again
+                // This is secrutiy concerns of the browser.
+                // You can only mock a click event if it is
+                // visible. Works on all browsers.
+                input.show().click().hide();
+            });
+            
+            // Fix for android keyboard bug
+            $button.on('mousedown', function(e){
+                $(this).focus();
+            });
+
+            // Add the button
+            template.append($button);
+
+            // Increase currently uploaded files limit
+            this.currentLimit++;
+
+            // Append it to the file list
+            this.DOM.fileList.append(template);
+
+            //template.nextThrough(':tabbable').focus();
+
+            return template;
+        }
+    });
+});
+/*****************************************************************\
+  Smooth Scroll Module
+/*****************************************************************\
+ * This module enabled smooth scrolling of elements on IAG pages
+ *
+\*****************************************************************/
+
+YUI().add(['smoothscroll'], function(Y){
+
+	var Smoothscroll = Y.uk.gov.bristol.module.extend({
+
+		DOM: {
+			'stickylink' : '.js-sticky a',
+		},
+		pluginName: 'smoothScroll',
+		render: function(){
+
+			var self = this;
+
+			// Messy event delegation, because reasons.
+			$('body').on('click', '.js-sticky a', self.handleStickyClick.bind(this));
+			
+			// Start the plugin
+			$('.js-sticky').sticky({
+			    'cloned': function(e, elem) {
+			      // When the stick is cloned, apply classes to it so that we can make it collapsible.
+			    
+			      elem.addClass('js-collapse');
+			      elem.find('.page-contents__title')
+			          .addClass('js-collapse__toggle')
+			          .append('<span class="icon icon--bcc icon--bcc--down"></span>');
+			      elem.find('.page-contents__list-wrapper')
+			          .addClass('js-collapse__area');
+			    },
+			    'enter': function(e, data) {
+			      self.collapseSticky(data.elem);
+			    },
+			    'exit': function(e, data) {
+			      self.collapseSticky(data.elem);
+			    }
+			});
+		},
+
+		handleStickyClick: function(e){
+			var $el = $(e.target),
+				self = this;
+
+		    e.preventDefault();
+		    if ($el.parents('.js-sticky').hasClass('is-clone')) {
+				$el.parents('.js-collapse').collapsible('standardCollapse', function(){
+					self.handleScroll(e.currentTarget);
+				});
+		    } else {
+		      self.handleScroll(e.target);
+		    }
+		},
+
+		handleScroll: function(elem){
+
+			var target = $(elem.hash);
+		    target = target.length ? target : $('[name=' + elem.hash.slice(1) +']');
+
+			//CRITICAL PART OF THIS CURRENT THING
+			var scrollToPosition = $(target).offset().top - $('.js-sticky.is-clone').height() - 20;
+
+			if (target.length) {
+		    	$("body, html").animate({
+			   		scrollTop: scrollToPosition
+		    	}, 400);
+		    	return false;
+		    }
+		},
+
+		collapseSticky: function($el){
+			if(!$el.is(':bcc-collapsible')) {
+		      $el.collapsible();
+		    }
+		    $el.collapsible('quickCollapse');
+		}
+	});
+
+});
+// Beasting complaints module
+/*
+YUI().add('complaints', function(Y){
+
+	var complaints = Y.uk.gov.bristol.module.extend({
+
+		DOM: {
+			'corr' : '#corr',
+			'choiceA' : '#choice1',
+			'choiceB' : '#choice2',
+			'choiceC' : '#choice3',
+			'pathA' : '#path1',
+			'pathB' : '#path2',
+			'pathC' : '#path3',
+			'radios' : "input[name='actor']",
+			'jsSubmitButton' : '#complaintsJSSubmit',
+			'submitButton' : '#field-submitPathway',
+			'confirmEmail' : '#confirm-your-email',
+			'addMyAddress' : '#field-addmyaddressCheckbox',
+		},
+
+		pluginName: 'complaints',
+
+		events: {
+			'uncheck $choiceA' : 'triggerResponse',
+			'check $choiceA' : 'handleChoiceA',
+			'check $choiceB' : 'triggerResponse',
+			'uncheck $choiceC' : 'triggerResponse',
+			'check $corr' : 'showPathA',
+			'uncheck $corr' : 'hidePathA',
+			'change $radios' : 'showSubmit'
+		},
+
+		render: function(){
+
+			if(this.DOM.radios.is(":checked"))
+				$('#field-submitPathway').attr('style', 'display: none');
+
+			if ($(".path").length === 0)
+		    	$( "#complaintsJSSubmit").trigger("click"); // server refresh bug
+			
+			this.triggerResponse();
+
+			this.setChecks();
+
+			if(this.DOM.choiceA.is(':checked') && this.DOM.confirmEmail.is(':checked'))
+    			this.DOM.addMyAddress.attr('style', 'display: none');
+
+    		this.statComplaintsBug();
+		},
+		statComplaintsBug: function(){
+			// leave this messy, it works!
+		    var $stat = $('html'),
+		        $choice1 = $stat.find('#choice1'),
+		        $choice2 = $stat.find('#choice2'),
+		        $check = $stat.find('#myaddresschk'),
+		        stateOfCheck = !!$check.is(':checked');
+
+		    $choice1.on('uncheck', function() {
+		        if (!stateOfCheck) {
+		            $check.trigger('hsa_uncheck');
+		        }
+		    });
+		    $choice1.on('check', function() {
+		        stateOfCheck = !!$check.is(':checked');
+		        if (stateOfCheck) {
+		            $check.trigger('hsa_check');
+		        }
+		    });
+		    setTimeout(function(){
+		    	if(stateOfCheck && $choice2.is(':checked')){
+		        	$check.trigger('hsa_uncheck');
+		        }
+		    }, 150);
+
+		},
+		setChecks: function(){
+			// If any radio is selected on load, then show the submit button
+			$(function(){
+				var isch = false;
+				this.DOM.radios.each(function(){
+					if($(this).is(':checked')){
+						isch = true;
+					}
+				});
+				if(!isch){
+					this.DOM.submitButton.attr('style', 'display: none');
+					setTimeout(function(){
+						this.DOM.pathA.attr('style', 'display: none');
+					}.bind(this), 300);
+				}else{
+					this.DOM.submitButton.attr('style', 'display: block;')
+				}
+			}.bind(this));
+
+		},
+		showSubmit: function(){
+			this.DOM.submitButton.attr('style', 'display: block');
+		},
+		showPathA: function(){
+			this.DOM.pathA.attr('style', 'display:block');
+		},
+		hidePathA: function(){
+			this.DOM.pathA.attr('style', 'display:none');
+		},
+		handleChoiceA: function(){
+			setTimeout(function(){
+				// If no email check is checked
+				if(this.DOM.confirmEmail.is(':checked')){
+					console.log('yehhhhhhhhh');
+					// Hide address radio
+					this.DOM.addMyAddress.attr('style', 'display: none');
+				}
+			}.bind(this), 250);
+			// also trigger response.
+			//this.triggerResponse();
+		},
+		triggerResponse: function(){
+			// Trigger the horrible check
+			setTimeout(function(){
+				// If this...
+				if(!this.DOM.choiceC.is(':checked') && this.DOM.corr.is(':checked')){
+		    		// Check the button
+		       		this.DOM.corr.trigger('check');
+		   	 	}
+			}.bind(this), 200); // Yes in a timeout, because reasons.
+		}
+
+	});
+
+
+
+}, '1.0.0', {
+	requires: ['module', 'check-events'],
+});*/
+/*****************************************************************\
+  Contact method
+/*****************************************************************\
+ * This module reacts to the country choosing dropdown menu and
+ * shows an 'other' input box if they selected other from the
+ * menu. 
+ *
+ * NOTE: This is a port of previous code and may still need 
+ * optimised to support ALL dropdowns that may have a option for
+ * other.
+ * 
+\*****************************************************************/
+YUI().add('contact-method', function(Y){
+
+	Y.namespace("uk.gov.bristol");
+
+	// .form__item:has(.js--controls--country)
+
+	Y.uk.gov.bristol.contactMethod = Y.uk.gov.bristol.module.extend({
+
+		DOM: {
+			'country' : '.js--controls--country',
+			'otherbox' : ' ~ .js--controls--other > *',
+			'errorMessage' : '.form__item__message--error',
+		},
+		events: {
+			'change $country' : 'changeCountry'
+		},
+		render: function(){
+			var value = this.$el.find("option:selected").val();
+			if(value != "other")
+				this.DOM.otherbox.hide();
+			// hack
+			$( ".js--controls-group .js--controls--country" ).trigger('change');
+		},
+		changeCountry:function(e){
+			var value = this.$el.find("option:selected").val();
+			if(value == "other"){
+				this.DOM.otherbox.show();
+				this.DOM.errorMessage.attr('style', '');
+			}else{
+				this.DOM.otherbox.hide();
+			}
+
+		},
+		pluginName: 'contactMethod',
+
+	});
+
+}, "1.0.0" ,{
+	'requires' : ['module']
+});
+/*****************************************************************\
+  Title of the module
+/*****************************************************************\
+ * Anything thats not immediately obvious at a glance goes here.
+ *
+ * TODO: Any improvements/technical debt goes here.
+\*****************************************************************/
+
+YUI().use(['module'], function(Y){
+    var MyModule = Y.uk.gov.bristol.module.extend({
+    		DOM: {
+                "formItem" : '.form__item__field--string',
+            },
+            events: {
+                "focus $formItem" : "focusFormItem",
+                "focusout $formItem" : "unfocusFormItem",
+            },
+            pluginName: 'parkingFocusSlab',
+            slabFocusClass: 'slab--white',
+            //slabDefaultClass: '',
+            render: function(){
+                
+            },
+            focusFormItem: function(e){
+                $(e.currentTarget).parents('.slab').removeClass(this.slabFocusClass);
+                
+                //console.log("focus");
+            },
+            unfocusFormItem: function(e){
+                if($(e.currentTarget).val().length === 0 || $(e.currentTarget).val() === '0'){
+                    $(e.currentTarget).parents('.slab').addClass(this.slabFocusClass);
+                } else {
+                    $(e.currentTarget).parents('.slab').removeClass(this.slabFocusClass);
+                }
+                //console.log("unfocus");
+            }
+    	});
+    	// module = new MyModule('#parking__visitor-permits__choose').parkingFocusSlab();
+    // Any more stuff here.
+});
+
+
+
+//Parking Bugfixes
+/*
+$('#parking__visitor-permits__choose .form__item__field--string')
+.on('focus', function () {
+
+	$(this).parents('.slab').removeClass('slab--outline');
+
+})
+.on('focusout', function(){
+
+	if($(this).val().length === 0 || $(this).val() === '0'){
+		$(this).parents('.slab').addClass('slab--outline');
+    } else {
+	    $(this).parents('.slab').removeClass('slab--outline');
+    }
+
+});
+*/
+
+//CPDP-2744
+//$('#parking__visitor-permits__choose .form__item__field')
+//  .on("change", function(){
+
+//   $(this).closest(".slab").removeClass("form__item--error");
+
+//});
+//!! Why broken? What is .wrap doing?
+//THIS IS COMPLETELY BROKEN
+//add span wrapper to all radio button and check box text nodes.
+/*
+$('.uniform__radio, .uniform__checkbox').each(function(){
+	var text = $(this).parent().contents().filter(function() {
+	    return this.nodeType == 3 && this.nodeValue != " ";
+	}).wrap('<span class="wrap"/>');
+	// .wrap?
+});
+*/
+
+
+YUI().add(['parking'], function(Y) {
+
+    Y.namespace('uk.gov.bristol').ParkingRenewals = Y.uk.gov.bristol.module.extend({
+
+        DOM: {
+            'permits': '[data-permit]',
+            'postcode': '#field-postcode',
+        },
+
+        pluginName: 'parkingRenewals',
+
+        newPermitTemplate: "<div id='field-addAnotherPermit' class='form__item slab slab--additional'>" + "<a class='cta cta--link' href='#addPermitItem'>" + "+ Add another permit" + "</a>" + "</div>",
+
+        render: function() {
+
+            // Find the additional permits and hide them
+            this.DOM.permits.filter(':not(:first)').hide().parent().hide();
+
+            //Create fragment with the new permit button
+            this.newPermit = $(this.newPermitTemplate);
+
+            // Bind a wee event on there
+            this.newPermit.on('click', function(e) {
+
+                // stop the link working
+                e.preventDefault();
+
+                // show the next permit thats hidden
+                this.DOM.permits.filter(':hidden:first').show().parent().show();
+
+                // if all the permits are on screen
+                if (this.DOM.permits.filter(':hidden').length === 0) {
+                    // hide the permit button
+                    this.newPermit.hide();
+                }
+
+            }.bind(this));
+
+            // Add the permit button to the DOM.
+            this.DOM.postcode.before(this.newPermit);
+
+        },
+    });
+
+    //
+    Y.namespace('uk.gov.bristol').ParkingPermits = Y.uk.gov.bristol.module.extend({
+
+        DOM: {
+            "permits": ".permit",
+            'activeRadios': '.form__item__field--radio:not(:disabled)',
+            "renewalDates": "[data-permit-date]",
+        },
+
+        events: {
+        	'change $activeRadios': 'recaluateCost',
+        	//'load': 'recaluateCost',
+        },
+
+        pluginName: 'permitDetails',
+
+        render: function() {
+            this.validPermits = this.DOM.activeRadios.length;
+            if (0 > this.validPermits < 4) {
+                this.$el.after(this.renderTemplate());
+            }
+            this.recaluateCost();
+        },
+
+        renderTemplate: function() {
+            if ($('#hide-total').length) return;
+            var gridSize = this.DOM.permits.length * 4;
+            totalHTML = '';
+            totalHTML += '<div class="calculating" id="calculating">';
+            totalHTML += "	<div class='calcwidth" + gridSize + "'>";
+            //totalHTML += "	<div class='span" + gridSize + "'>";
+            totalHTML += "		<div class='total'>Total: <strong>Recalculating...</strong></div>";
+            totalHTML += "	</div>";
+            totalHTML += "</div>";
+            return totalHTML;
+        },
+        parseValue: function(val) {
+            var trimmedVal = $.trim(val),
+                str;
+
+            if (trimmedVal == "Free") {
+                str = 0;
+            } else {
+                str = trimmedVal;
+                str = str.replace(String.fromCharCode('163'), "");
+                str = parseInt(str, 10);
+            }
+            return str;
+        },
+        recaluateCost: function() {
+            var self = this,
+                total = 0,
+                radiodisabled = this.$el.find('.form__item__field--radio:not(:disabled):checked'),
+                checkthisone = this.$el.find('.form__item__field--radio:not(:disabled)'),
+                isOnly = $("p[data-permit-cost]");
+
+            
+            // No Choice (Not a radio)
+            
+            if(isOnly){
+            	//var isOnlyCost = isOnly.find('.permit__cost').attr('data-price');
+            	//var isOnlyCost = isOnly.parseValue($(this).closest('.form__item__label--group').find('.permit__cost').html());
+                //console.log('isOnlyCost: ', isOnlyCost);
+                
+            	var isOnlyRenewalDate = isOnly.find('.permit__cost').attr('data-permit-date');
+            	//console.log('isOnlyRenewalDate: ', isOnlyRenewalDate);
+    			isOnly.closest(".permit").find(".permit__end").html('to <span class="date">' + isOnlyRenewalDate + '</span>');
+            }
+            
+            
+            this.$el.find('[data-price]').each(function() {
+
+                total += self.parseValue($(this).attr('data-price'));
+
+            });
+            
+            
+            
+            radiodisabled.each(function() {
+            	
+            	var checkedRadio = self.parseValue($(this).closest('.form__item__label--group').find('.permit__cost').html());
+
+            	//console.log('checkedRadio: ', checkedRadio);
+            	
+                total += checkedRadio;
+
+                //console.log('total: ', total);
+                
+                var renewalDate = $(this).closest('.form__item__label--group').attr('data-permit-date');
+
+                //console.log('renewalDate: ', renewalDate);
+                
+                $(this).closest(".permit").find(".permit__end").html('to <span class="date">' + renewalDate + '</span>');
+
+            });
+            
+            
+            if (!isOnly && !total && !checkthisone.length) total = 'unknown';
+
+            total = (total) ? '£ ' + total : 'Free';
+
+            $("#calculating strong").html(total);
+        },
+
+
+    });
+
+});
+YUI().add(['waste'], function(Y){
+	
+	console.log("Waste");
+
+    var Breakpoints = Y.uk.gov.bristol.Breakpoints;
+
+    Y.namespace('uk.gov.bristol').Waste = Y.uk.gov.bristol.module.extend({
+        DOM: {
+            'toggle' : '.bintable-toggle',
+            'title' : '.bintable-checkbox ~ .bintable-body .bintable-title',
+            'checkbox' : '.bintable-checkbox',
+            'rows' : '.bintable-row',
+            'reason' : '.form__item__field--select--reason',
+            'quantity' : '.form__item__field--quantity',
+            'hiddenQuantity' : '#ff-wheeled-rubbish-bin__qtyhdn',
+        },
+        events: {
+            'click $toggle' : 'toggleBasket',
+            'click $title' : 'toggleBasket',
+            'click $checkbox' : 'toggleBasket',
+            'change $reason' : 'handleReason',
+            'change $quantity' : 'handleQuantity',
+        },
+        pluginName: 'binTable', /* Exports as JQuery Plugin */
+        preventDouble: false,
+        render: function(){
+            Breakpoints.on('mobile', function(){
+                //console.log("You are on mobile on waste");
+            });
+            
+            // Sanity Checks
+            var self = this;
+            this.DOM.rows.each(function(k, v){
+            	
+                if($(this).find('.bintable-checkbox').length === 0 && !$(this).hasClass('bintable-row--nocheckbox')){
+                    console.log('Missing Class on bintable-row ('+(k+1)+'): bintable-row--nocheckbox');
+                    $(this).addClass('bintable-row--nocheckbox');
+                }
+                if($(this).find('.bintable-options').length === 0 && !$(this).hasClass('bintable-row--nooptions')){
+                    console.log('Missing Class on bintable-row ('+(k+1)+'): bintable-row--nooptions');
+                    $(this).addClass('bintable-row--nooptions');
+                }
+                if($(this).find('.bintable-totalrow').length !== 0 && !$(this).hasClass('bintable-row--total')){
+                    console.log('Missing Class on bintable-row ('+(k+1)+'): bintable-row--total');
+                    $(this).addClass('bintable-row--total');
+                }
+                //console.log($(this).find('.form__item__field--quantity').val());
+                
+                // If .bintable-row is NOT EQUAL to 0
+                if($(this).find('.form__item__field--quantity').val() !== "0"){
+                    self.selectBasket($(this));
+                }
+                if($(this).find('.form__item__field--select--reason').val() == "damaged"){
+                    self.showRemoveBin($(this));
+                }
+                
+            });
+            if(this.DOM.hiddenQuantity.closest('.bintable-row').hasClass('bintable-row--selected')){
+                this.DOM.hiddenQuantity.val('1').trigger('change');
+            }
+        },
+        toggleBasket: function(e){
+            e.preventDefault();
+            var $row = $(e.currentTarget).closest('.bintable-row'),
+                $isSelected = $row.hasClass('bintable-row--selected');
+            return $isSelected ? this.deselectBasket($row) : this.selectBasket($row);
+        },
+        handleReason: function(e, preventDouble){
+
+            var $dropdown = $(e.currentTarget),
+                $row = $dropdown.closest('.bintable-row'),
+                $qdropdown = $row.find('.form__item__field--quantity');
+
+
+            ($dropdown.val() == "damaged") ? this.showRemoveBin($row) : this.hideRemoveBin($row);
+
+            if(preventDouble) return true;
+
+            if($dropdown.val() !== 'invalid'){
+                this.selectBasket($row); 
+            }else{
+                this.deselectBasket($row);
+            }
+
+
+        },
+        handleQuantity: function(e, preventDouble){
+            if(preventDouble) return true;
+
+            var $dropdown = $(e.currentTarget),
+                $row = $dropdown.closest('.bintable-row'),
+                $hdnqty = $row.find('#ff-wheeled-rubbish-bin__qtyhdn');
+            if($dropdown.val() != '0'){
+                if($hdnqty) $hdnqty.val('1').trigger('change');
+                this.selectBasket($row);
+            }else{
+                if($hdnqty) $hdnqty.val('0').trigger('change');
+                this.deselectBasket($row);
+            }
+        },
+        deselectBasket: function($row, force){
+            if($row.find('#ff-wheeled-rubbish-bin__qtyhdn').length) this.DOM.hiddenQuantity.val('0').trigger('change');
+            $row.removeClass('bintable-row--selected');
+            $row.find('input[type="checkbox"]').removeAttr('checked');
+            $row.find('.bintable-checkbox span').removeClass('checked');
+            $row.find('.form__item__field--select--reason').val('invalid').trigger('change', [true]);
+            $row.find('.form__item__field--quantity').val('0').trigger('change', [true]);
+        },
+        getTotalSelected: function(){
+            return this.$el.find('.bintable-row--selected').length;
+        },
+        selectBasket: function($row){
+            var $qdropdown = $row.find('.form__item__field--quantity');
+            //if($row.find('#ff-wheeled-rubbish-bin__qtyhdn').length) $row.find('#ff-wheeled-rubbish-bin__qtyhdn').val('1').trigger('change');
+            $row.addClass('bintable-row--selected');
+            $row.find('input[type="checkbox"]').prop('checked','checked'); 
+            $row.find('input[type="checkbox"] + field__label').addClass('field__label--checked');
+            $row.find('.bintable-checkbox span').addClass('checked'); // Look into css
+            if($row.find('#ff-wheeled-rubbish-bin__qtyhdn').length){
+                if($qdropdown.val() == '0') $qdropdown.val('180L').trigger('change');
+            }else{
+                if($qdropdown.val() == '0') $qdropdown.val('1').trigger('change');
+            }
+        },
+        showRemoveBin: function($row){
+            $row.find('.bintable-select--oldbin').addClass('bintable-select--oldbin_active');
+        },
+        hideRemoveBin: function($row){
+            var ob = $row.find('.bintable-select--oldbin');
+            ob.removeClass('bintable-select--oldbin_active');
+            ob.find('input').removeProp('checked').trigger('change').closest('span').removeClass('checked');
+        }
+    });
+},'1.0.0' , {
+    requires: ['module', 'breakpoints']
+});
+
+
+YUI().use(
+	'waste', 
+	'button-states', 
+	'breakpoints', 
+	'address-lookup',
+	'contact-method',
+	/*'complaints',*/
+	'parking',
+	'smoothscroll',
+function(Y){
+	// JQuery FN (temp)
+	$.fn.nextThrough = function(selector) {
+	    // Our reference will be the last element of the current set
+	    var $reference = $(this).last();
+	    // Add the reference element to the set the elements that match the selector
+	    var $set = $(selector).add($reference);
+	    // Find the reference position to the set
+	    var $pos = $set.index($reference);
+	    // Return an empty set if it is the last one
+	    if ($set.length == $pos) return $();
+	    // Return the next element to our reference
+	    return $set.eq($pos + 1);
+	};
+	
+	// Bintable Module
+	$('.bintable').binTable();
+
+	// Smooth Sroll
+	$("body").smoothScroll(); 
+
+	$('.js--permitTotal').permitDetails();
+
+	// Button States 
+	$('body:has(button.cta)').buttonStates();
+
+	// Address Lookup
+	$('.js--address-lookup').addresslookup();
+
+	// Parking - slab outline on focus.
+	$('#parking__visitor-permits__choose').parkingFocusSlab();
+
+	// JS Prevent Double Submit
+	$('form:has(.js--prevent-double)').preventDoubleSubmit();
+
+	// Enable docupload
+	$(".docupload--enhanced").fileUpload();
+	
+	
+
+	(function hideEmptyColumns(){
+
+		if ($('.portlet-body').length > 0) { 
+
+			// Bug #CPDP-4686, #CPDP-4686
+			var side = $('.portlet-column.side');
+			var isEmpty = $.trim( side.find('.portlet-body').html() ).length;
+			
+			if( isEmpty === 0 ) {
+				//console.log("c");
+				side.hide();
+			}
+
+		}
+
+	})();
+	
+	
+	
+	
+		
+	// Form errors at the top of the page
+	$("#errors a.error__item__link").headerErrors();
+	
+	$('.open-validation .open-validation__error').pageLoadValidation();
+
+
+	$('[data-validate-max-characters]').openValidation({
+		keyup: true,
+		validation: function($el, $fieldset){
+			var total = $fieldset.attr('data-validate-max-characters'),
+				current = $el.val().length;
+			
+			if(current > total) return "You have used too many characters";
+			$fieldset.find('.js--character-count').text(total - current);
+		},
+	});
+
+	$('[data-validate-password]').openValidation({
+		requiredMessage: 'Please fill this in',
+		keyup: false,
+		validation: function($el){
+			
+			// Check length of password
+			if($el.val().length < 7)
+				return 'Your password must be 8 characters long';
+
+			//Make sure passwords match
+			var match = $el.val(), showerror = false, oneempty = false;
+
+			this.DOM.textFormElements.each(function(){
+				if($(this).val() === "")
+					oneempty = true;
+				if(match != $(this).val())
+					showerror = true;
+			});
+
+			if(!oneempty && showerror)
+				return 'Passwords must match';
+
+		},
+	});
+
+	$('[data-validate-expect]').openValidation({
+		validation: function(el, parent){
+			if(el.val() !=  parent.attr('data-validate-expect') )
+				return (parent.attr('data-validate-expect-message')) ? parent.attr('data-validate-expect-message')  : 'Please choose a valid option';
+			return false;
+		}
+	});
+
+	$('.field:has([required]), .field[required]').openValidation();
+
+	$('[data-validate-postcode]').openValidation({
+		requiredMessage: 'Please enter a valid UK postcode',
+		validation: function(el){
+			var reg = "^(GIR ?0AA|[A-PR-UWYZ]([0-9]{1,2}|([A-HK-Y][0-9]([0-9ABEHMNPRV-Y])?)|[0-9][A-HJKPS-UW]) ?[0-9][ABD-HJLNP-UW-Z]{2})$";
+			if(el.val().toUpperCase().match(reg))
+				return false;
+			return "You must enter a valid UK postcode";
+		},
+	});
+
+	$('.form__item:has(.js--controls--country)').contactMethod();
+
+	// Keep session alive.
+	if($('[data-extend-session]').length){
+		var extendLink = $('[data-extend-session]').attr('data-extend-session');
+		setTimeout(function(){ Liferay.Session.extend(); }, (1000*extendLink) );
+	}
+
+});
+// Safari Bugfixing on submits
+var fixcache = function(){ $('.js--prevent-double').prop("disabled", false).removeAttr("disabled").removeClass('disabled').html($('.js--prevent-double').attr('data-html-value')); };
+window.pageshow = function(event){ if (event.persisted) fixcache(); };
+window.onpageshow = function(event) { if (event.persisted) fixcache(); };
+$(window).on('unload', function(){ /*$(this).unbind('unload'); fixcache(); */
+	   }).on('load',   function(){
+	
+	// More scroll Fixes.
+	if (window.location.hash) window.location = window.location.hash;
+	// IE 7-8 Loading fix see Bug #CPDP-2761 & #CPDP-3187
+	if('\v'=='v'){
+		setTimeout(function(){
+			$('.icon--bcc').addClass('iefixicons').removeClass('iefixicons');							
+		}, 150);
+		$('html').addClass('ie8');
+	}
+});
+
+
+
+// IE8 Class
+if('\v'=='v'){$('html').addClass('ie8');}
+
+// Windows Chrome bugfix for Sticky Nav
+// This fix is not needed
+$(window).trigger('resize');
+
+// VALIDATION
+$('.js--validate').validate();
+
+// form placeholders
+// Are we using these?
+$('input, textarea').placeholder();
+
+
+
+
+// TABS
+// !! Change to js--
+$('.js--tabs').tabs();
+
+//COLLAPSIBLE TABLE
+$('.js--collapse').collapsible();
+
+//COLLAPSE TABLE
+$('.js--collapse-table').collapsetable();
+
+
+$('select.form__item__field--select--block, .form__item__field[type=radio], .form__item__field[type=checkbox]')
+	.uniform({
+		wrapperClass: 'uniform',
+		selectClass: 'uniform__select--block',
+		radioClass: 'uniform__radio',
+		checkboxClass: 'uniform__checkbox'
+	});
+	
+$('select.form__item__field--select--inline')
+	.uniform({
+		wrapperClass: 'uniform',
+		selectClass: 'uniform__select--inline'
+	});
+
+//@TODO: Next line needs explaining as to why... and probably needs refactoring as it's brittle
+$('.uniform__checkbox:has(.form__item__field--checkbox--large)').addClass('uniform__checkbox--large');
+
+
+
+
+
+
+(function MobileFormFix(){
+	// See bugs #CPDP-2338 #CPDP-2740
+	 if(window.innerWidth > 1024) return;
+	$('*[data-primary-submit]').each(function(){
+		var $btn = $(this),
+			$form = $btn.closest("form"),
+			$el = $(this).clone();
+
+		$el.css({
+			'position' : 'absolute',
+			'visibility' : 'hidden',
+		});
+		$form.prepend($el);
+	});
+
+})();
+
+//Mobile Tabs - fluid
+(function MobileTabs () {
+	// Only for smaller windows
+	if(window.innerWidth > 480) return;
+	// Bunched to avoid thrashing
+	var count = 0, // original overflowing width of tabs
+	 	$tablist = $('*[role="tablist"]').children(), // tablist
+	    tabListWidth = $('*[role="tablist"]').width(); // width of tablist (100% of window minus padding)
+
+	$tablist.each(function(e) {
+	    count += $(this).width(); // add the widths of tabs
+	});
+
+	if (count > tabListWidth) { //if the tabs overflow
+	 	// loop over the tabs
+	    $tablist.each(function(e) {
+	     	// Bunched to avoid thrashing
+	        var $tab = $(this),
+	         	$tablinks = $tab.find('a'),
+	         	owid = ($tab.width() / count) * 100; // new % value for fluid tabs
+
+	         // Add width CSS to tabs
+	         $tab.css({
+	            width: owid + '%',
+	         });
+
+	         // OPTIMISATION: Make CSS Class?
+	         // Some fluid changes to tabs
+	         $tablinks.css({
+	            'padding': '0px',
+	            'width': '100%',
+	            'text-align': 'center',
+	            'font-size' : '16px',
+	        });
+	    });
+	}
+
+	
+})();
+YUI().use('test','test-console', function(Y){
+
+    var OpenValidationSuite = new Y.Test.Suite({
+        name: "Open Validation",
+    });
+
+    // Test Case 1
+    OpenValidationSuite.add(new Y.Test.Case({
+
+        name: "Open Validation Basic",
+
+
+        inputs: {
+            bubbleInput:        'input[type="text"][required]',
+            delegateInupt:      '.field[required] input[type="text"]',
+            bubbleTextarea:     'textarea[required]',
+            delegateTexarea:    '.field[required] textarea',
+            bubbleDrop:         '.drop select[required]',
+            delegateDrop:       '.field[required] .drop select',
+            bubbleRadio:        'input[type="radio"][required]',
+            delegateRadio:      '.field[required] input[type="radio"]',
+            bubbleCheckbox:     'input[type="checkbox"][required]',
+            delegateCheckbox:   '.field[required] input[type="checkbox"]',
+        },
+
+        testBubbleInput: function(){
+            var self = this;
+            $(this.inputs.bubbleInput).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All text inputs should bubble up an error when required");
+            });
+        },
+        testBubbleInputResolution: function(){
+            var self = this;
+            $(this.inputs.bubbleInput).each(function(){
+                $(this).val('test').trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When text is entered, bubble error should be resolved");
+            });
+        },
+        testDelegateInput: function(){
+            var self = this;
+            $(this.inputs.delegateInupt).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All fields should delegate an error to a text input when required");
+            });
+        },
+        testDelegateInputResolution: function(){
+            var self = this;
+            $(this.inputs.delegateInupt).each(function(){
+                $(this).val('test').trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When text is entered, delegate error should be resolved");
+            });
+        },
+        testBubbleTextarea: function(){
+            var self = this;
+            $(this.inputs.bubbleTextarea).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All textareas should bubble up an error when required");
+            });
+        },
+        testBubbleTextareaResolution: function(){
+            var self = this;
+            $(this.inputs.bubbleTextarea).each(function(){
+                $(this).val('test').trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When text is entered, bubble error should be resolved on textarea");
+            });
+        },
+        testDelegateTextarea: function(){
+            var self = this;
+            $(this.inputs.delegateTextarea).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All fields should delegate an error to a textarea when required");
+            });
+        },
+        testDelegateTextareaResolution: function(){
+            var self = this;
+            $(this.inputs.delegateTextarea).each(function(){
+                $(this).val('test').trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When text is entered, delegate error should be resolved on textarea");
+            });
+        },
+        testBubbleDropdown: function(){
+            var self = this;
+            $(this.inputs.bubbleDrop).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All fields should bubble up an error when required");
+            });
+        },
+        testBubbleDropResolution: function(){
+            var self = this;
+            $(this.inputs.bubbleDrop).each(function(){
+                $(this).prop('selectedIndex', 1).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When a choice is entered, bubble error should be resolved");
+            });
+        },
+        testDelegateDropdown: function(){
+            var self = this;
+            $(this.inputs.delegateDrop).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All fields should delegate an error to a dropdown when required");
+            });
+        },
+        testDelegateDropResolution: function(){
+            var self = this;
+            $(this.inputs.delegateDrop).each(function(){
+                $(this).prop('selectedIndex', 1).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When choice is changed, delegate error should be resolved");
+            });
+        },
+        testBubbleRadio: function(){
+            var self = this;
+            $(this.inputs.bubbleRadio).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All radios should bubble up an error when required");
+            });
+        },
+        testBubbleRadioResolution: function(){
+            var self = this;
+            $(this.inputs.bubbleRadio).each(function(){
+                $(this).prop('checked', 'checked').trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When choice is changed, bubble error should be resolved");
+            });
+        },
+        testDelegateRadio: function(){
+            var self = this;
+            $(this.inputs.delegateRadio).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All fields should delegate an error to a radio when required");
+            });
+        },
+        testDelegateRadioResolution: function(){
+            var self = this;
+            $(this.inputs.delegateRadio).each(function(){
+                $(this).prop('checked', 'checked').trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When choice is changed, bubble error should be resolved");
+            });
+        },
+        testBubbleCheckbox: function(){
+            var self = this;
+            $(this.inputs.bubbleCheckbox).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All checkboxes should bubble up an error when required");
+            });
+        },
+        testBubbleCheckboxResolution: function(){
+            var self = this;
+            $(this.inputs.bubbleCheckbox).each(function(){
+                $(this).prop('checked', 'checked').trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When choice is changed, bubble error should be resolved");
+            });
+        },
+        testDelegateCheckbox: function(){
+            var self = this;
+            $(this.inputs.delegateCheckbox).each(function(){
+                $(this).trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasError($(this)), "All fields should delegate an error to a checkbox when required");
+            });
+        },
+        testDelegateCheckboxResolution: function(){
+            var self = this;
+            $(this.inputs.delegateCheckbox).each(function(){
+                $(this).prop('checked', 'checked').trigger('blur');
+                Y.Assert.isTrue(self.parentFieldHasNoError($(this)), "When choice is changed, delegate error should be resolved");
+            });
+        },
+        parentFieldHasError: function($el){
+            return !!$el.closest('.field').hasClass('field--error');
+        },
+        parentFieldHasNoError: function($el){
+            return !$el.closest('.field').hasClass('field--error');
+        }
+    }));
+    // exports
+    Y.namespace('Suites').OpenValidation = OpenValidationSuite;
+
+    window.OpenValidation = OpenValidationSuite;
+    
+});
+YUI().use('test','test-console', 'waste', function(Y){
+	
+	
+    var WasteSuite = new Y.Test.Suite({
+        name: "Waste",
+    });
+
+    // Test Case 1
+    WasteSuite.add(new Y.Test.Case({
+
+        name: "Waste Tables",
+        
+        testBinReset: function(){
+
+            // Unselect currently selected bins
+            $('.bintable-row--selected .bintable-checkbox').click();
+
+            // There should now be no more bins
+            Y.Assert.areEqual($('.bintable-row--selected').length, 0, "There should be no binrows checked");
+        
+        },
+        testBinSelection: function(){
+
+            var $rows = $('.bintable-row');
+
+            // for each of the bin rows
+            $rows.each(function(e){
+
+                // click once, check if it is selected
+                $(this).find('.bintable-checkbox').click();
+                Y.Assert.isTrue($(this).hasClass('bintable-row--selected'), "Row should be selected when a checkbox is clicked");
+                
+                // click again, check if it is unselected
+                $(this).find('.bintable-checkbox').click();
+                Y.Assert.isFalse($(this).hasClass('bintable-row--selected'), "Row should be deselected when a checkbox is clicked");
+            
+            });
+        },
+        testQuantityChange: function(){
+
+            var $rows = $('.bintable-row');
+
+            // for each of the bin rows
+            $rows.each(function(num){
+
+                // Check if first bin (black bin)
+                if(num){
+                    // change to 180L
+                    $(this).find('.form__item__field--quantity').val('180L').trigger('change');
+
+                }else{
+                    // change to 1
+                    $(this).find('.form__item__field--quantity').val('1').trigger('change');
+
+                }
+
+                // Make sure the row is selected
+                Y.Assert.isTrue($(this).hasClass('bintable-row--selected'), "Row should be selected when quantity is change");
+                
+                // Change Quantity back to 0
+                $(this).find('.form__item__field--quantity').val('0').trigger('change');
+                
+                // Make sure the row is not selected
+                Y.Assert.isFalse($(this).hasClass('bintable-row--selected'), "Row should be deselected when quantity is changed to 0");
+            
+            });
+        },
+        testReason: function(){
+
+            var $rows = $('.bintable-row');
+
+            // for each of the bin rows
+            $rows.each(function(num){
+                var reason = $(this).find('.form__item__field--select--reason');
+
+                // Change reason to lost
+                reason.val('lost-stolen').trigger('change');
+                Y.Assert.isTrue($(this).hasClass('bintable-row--selected'), 
+                    "Row should be selected when reason is changed");
+
+                // change to damaged
+                reason.val('damaged').trigger('change');
+                Y.Assert.isTrue($(this).find('.bintable-select--oldbin').hasClass('bintable-select--oldbin_active'), 
+                    "'Please take my old box' should appear when 'damaged' is selected");
+
+                // change to invalid
+                reason.val('invalid').trigger('change');
+                Y.Assert.isFalse($(this).hasClass('bintable-row--selected'), 
+                    "Row should be deselected when reason is changed back to normal");
+
+            });
+
+        },
+
+        testReasonDeselect: function(){
+
+            var $rows = $('.bintable-row');
+
+            // for each of the bin rows
+            $rows.each(function(num){
+                var reason = $(this).find('.form__item__field--select--reason');
+
+                // Change reason
+                reason.val('lost-stolen').trigger('change');
+
+                // Check bin is selected
+                Y.Assert.isTrue($(this).hasClass('bintable-row--selected'));
+
+                // Click bin
+                $(this).find('.bintable-checkbox').click();
+
+                // Check that reason is invalid
+                Y.Assert.isFalse((reason.val() == "lost-stolen"));
+                
+            });
+        }
+
+    }));
+    // exports
+    Y.namespace('Suites').Waste = WasteSuite;
+
+    window.WasteSuite = WasteSuite;
+    
+});
+
